@@ -22,21 +22,28 @@ def log_session(task_description, state):
         # Log format: 2025-07-22T20:45:00 - START: Write newsletter
         f.write(f"{datetime.now().isoformat()} - {state}: {task_description}\n")
 
-# === Function: Run a countdown timer and show time remaining ===
+# === Function: Run a countdown timer and show time remaining with progress bar ===
 def start_timer(duration, label):
-    # Print the initial message
+    # Print initial message
     print(f"Starting {label} timer for {duration // 60} minutes...")
 
+    # Timer Below
     try:
-        for remaining in range(duration, 0, -1):
-            # Calculate minutes and seconds remaining
+        for elapsed in range(duration):
+            remaining = duration - elapsed
             mins, secs = divmod(remaining, 60)
-            # Print countdown on the same line (overwrites previous line)
-            print(f"{label} Time: {mins:02}:{secs:02}", end="\r")
-            time.sleep(1)  # Wait 1 second
-        print()  # Newline after countdown finishes
 
-        # Alert user that the timer is done
+            # Progress bar setup
+            bar_width = 20
+            percent_complete = elapsed / duration
+            filled_length = int(bar_width * percent_complete)
+            bar = '█' * filled_length + ' ' * (bar_width - filled_length)
+
+            # Print status
+            print(f"{label} Time: {mins:02}:{secs:02} [{bar}] {int(percent_complete * 100)}%", end='\r')
+            time.sleep(1)
+        # Alert on timer completion
+        print()
         ring_bell()
         print(f"{label} session complete!")
 
