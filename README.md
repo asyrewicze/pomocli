@@ -1,4 +1,5 @@
 # pomocli
+
 A lightweight, Terminal-native Pomodoro timer for Linux / MacOS
 
 **pomocli** is a terminal-native Pomodoro timer for Linux and MacOS.
