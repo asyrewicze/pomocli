@@ -10,7 +10,13 @@ A lightweight, Terminal-native Pomodoro timer for Linux / MacOS
 
 ## Usage
 
-Simply running:
+Make sure the script is executable:
+
+```bash
+chmod +x pomocli
+```
+
+Then, simply running:
 
 ```bash
 ./pomocli
