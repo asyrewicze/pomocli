@@ -10,8 +10,16 @@ A lightweight, Terminal-native Pomodoro timer for Linux / MacOS
 
 ## Usage
 
+Simply running:
+
 ```bash
-python3 pomocli.py
+./pomocli
+```
+
+should be all that's needed, assuming your Python PATHing is correct. Otherwise you can call Python directly:
+
+```bash
+python3 pomocli
 ```
 
 You'll be prompted to enter your task, and then your 25-minute timer begins. At the end, you'll get a break timer too. Logs go to ~/pomocli_log.txt.
