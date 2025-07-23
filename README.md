@@ -1,2 +1,21 @@
 # pomocli
 A lightweight, Terminal-native Pomodoro timer for Linux / MacOS
+
+**pomocli** is a terminal-native Pomodoro timer for Linux and macOS.
+
+- 🔔 Minimal, distraction-free
+- 📝 Logs your task + timestamps to a file
+- 🔊 Terminal bell alert at session end
+- ⏱️ Fully CLI-based, no GUI dependencies
+
+## Usage
+
+```bash
+python3 pomocli.py
+```
+
+You'll be prompted to enter your task, and then your 25-minute timer begins. At the end, you'll get a break timer too. Logs go to ~/pomocli_log.txt.
+
+## License
+
+MIT (See LICENSE file)
