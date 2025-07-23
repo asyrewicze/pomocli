@@ -62,7 +62,7 @@ def main():
         log_session(task, "START")
 
         # Start 25-minute work timer
-        start_timer(WORK_DURATION, "Work")
+        start_timer(WORK_DURATION, "-Work")
 
         # Log the end of the work session
         log_session(task, "END")
@@ -71,7 +71,7 @@ def main():
         input("☕️ Press Enter to start your 5-minute break...")
 
         # Start 5-minute break timer
-        start_timer(BREAK_DURATION, "Break")
+        start_timer(BREAK_DURATION, "-Break")
 
     except KeyboardInterrupt:
         # Catch Ctrl+C from user to avoid a nasty traceback
