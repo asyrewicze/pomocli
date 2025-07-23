@@ -19,8 +19,9 @@ def ring_bell():
 def log_session(task_description, state):
     # `state` should be either "START" or "END"
     with open(LOG_FILE, "a") as f:
-        # Log format: 2025-07-22T20:45:00 - START: Write newsletter
-        f.write(f"{datetime.now().isoformat()} - {state}: {task_description}\n")
+        # Log format: 2025-07-22T20:45 - START: Write newsletter
+        timestamp = datetime.now().strftime("%Y-%m-%d T=%H:%M")
+        f.write(f"{timestamp} - {state}: {task_description}\n")
 
 # === Function: Run a countdown timer and show time remaining with progress bar ===
 def start_timer(duration, label):
