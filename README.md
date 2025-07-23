@@ -24,9 +24,9 @@ python3 pomocli
 
 You'll be prompted to enter your task, and then your 25-minute timer begins. At the end, you'll get a break timer too. Logs go to ~/pomocli_log.txt.
 
-On Linux the filepath equates to /home/<username>/pomocli_log.txt
+On Linux the filepath equates to /home/USERNAME/pomocli_log.txt
 
-On MacOS the filepath equates to /Users/<username>/pomocli_log.txt
+On MacOS the filepath equates to /Users/USERNAME/pomocli_log.txt
 
 ## License
 
