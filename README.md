@@ -7,6 +7,10 @@ Just: pick a task, run a timer, take a break, repeat.
 
 ---
 
+![pomocli image](./images/pomocli.png)
+
+---
+
 ## Overview
 
 PomoCLI is a terminal UI written in Python using curses. It is designed for people who already live in a terminal and want a Pomodoro tool that stays fast, local, and honest.
