@@ -62,7 +62,7 @@ Everything runs locally. Nothing phones home.
 Clone the repository and run the script directly:
 
 ```bash
-git clone https://github.com/yourusername/pomocli.git
+git clone https://github.com/asyrewicze/pomocli.git
 cd pomocli
 python3 pomocli.py
 ```
