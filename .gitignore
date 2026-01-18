@@ -1,3 +1,73 @@
+# =========================
+# macOS
+# =========================
+
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Icon files
+Icon?
+._*
+
+# Thumbnails
+._.DS_Store
+
+# Spotlight
+.Spotlight-V100
+.Trashes
+
+# Time Machine
+.com.apple.timemachine.donotpresent
+
+# Finder metadata
+.fseventsd
+
+# =========================
+# macOS volumes
+# =========================
+.VolumeIcon.icns
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+
+# =========================
+# iCloud
+# =========================
+*.icloud
+
+# =========================
+# Editor / OS noise
+# =========================
+*.swp
+*.swo
+*~
+
+# =========================
+# Python
+# =========================
+
 __pycache__/
-*.pyc
-*.log
+*.py[cod]
+*.pyo
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Packaging
+build/
+dist/
+*.egg-info/
+
+# Test / coverage
+.coverage
+htmlcov/
+.pytest_cache/
+
+# mypy / ruff / pyright
+.mypy_cache/
+.ruff_cache/
+.pyright/
