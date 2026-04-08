@@ -19,8 +19,8 @@ from datetime import datetime
 from typing import List, Optional
 
 # Files
-LOG_FILE = os.path.expanduser("~/pomocli_log.txt")
-CONFIG_FILE = os.path.expanduser("~/.pomocli_config.json")
+LOG_FILE = os.path.expanduser("~/Scripts/pomocli/pomocli_log.txt")
+CONFIG_FILE = os.path.expanduser("~/Scripts/pomocli/.pomocli_config.json")
 
 # Defaults (minutes)
 DEFAULT_WORK_MIN = 25
@@ -31,13 +31,16 @@ DEFAULT_BREAK_MIN = 5
 # Persistence
 # -----------------------------
 def load_config() -> dict:
-    cfg = {"work_minutes": DEFAULT_WORK_MIN, "break_minutes": DEFAULT_BREAK_MIN}
+    cfg = {"work_minutes": DEFAULT_WORK_MIN,
+           "break_minutes": DEFAULT_BREAK_MIN}
     try:
         with open(CONFIG_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
             if isinstance(data, dict):
-                cfg["work_minutes"] = int(data.get("work_minutes", cfg["work_minutes"]))
-                cfg["break_minutes"] = int(data.get("break_minutes", cfg["break_minutes"]))
+                cfg["work_minutes"] = int(
+                    data.get("work_minutes", cfg["work_minutes"]))
+                cfg["break_minutes"] = int(
+                    data.get("break_minutes", cfg["break_minutes"]))
     except FileNotFoundError:
         pass
     except Exception:
@@ -89,7 +92,8 @@ def init_curses(stdscr) -> None:
         curses.start_color()
         curses.use_default_colors()
         curses.init_pair(1, curses.COLOR_CYAN, -1)     # Title
-        curses.init_pair(2, curses.COLOR_BLACK, curses.COLOR_WHITE)  # Highlight
+        curses.init_pair(2, curses.COLOR_BLACK,
+                         curses.COLOR_WHITE)  # Highlight
         curses.init_pair(3, curses.COLOR_YELLOW, -1)   # Status
         curses.init_pair(4, curses.COLOR_GREEN, -1)    # Success
 
@@ -112,7 +116,8 @@ def draw_frame(stdscr, title: str = "") -> None:
         pass
 
     if title:
-        attr = curses.color_pair(1) | curses.A_BOLD if curses.has_colors() else curses.A_BOLD
+        attr = curses.color_pair(
+            1) | curses.A_BOLD if curses.has_colors() else curses.A_BOLD
         header = f" {title} "
         x = max(1, (w - len(header)) // 2)
         try:
@@ -167,7 +172,7 @@ def prompt_input(stdscr, title: str, prompt: str, initial: str = "") -> Optional
                 buf.append(c)
 
 
-def menu(stdscr, title: str, options: List[str], footer: str = "q: back/quit") -> int:
+def menu(stdscr, title: str, options: List[str], footer: str = "[q]: back/quit") -> int:
     idx = 0
     while True:
         draw_frame(stdscr, title)
@@ -185,7 +190,8 @@ def menu(stdscr, title: str, options: List[str], footer: str = "q: back/quit") -
             if y >= h - 3:
                 break
             if i == idx:
-                attr = curses.color_pair(2) | curses.A_BOLD if curses.has_colors() else curses.A_REVERSE
+                attr = curses.color_pair(
+                    2) | curses.A_BOLD if curses.has_colors() else curses.A_REVERSE
             else:
                 attr = 0
             line = f"  {opt}"
@@ -279,6 +285,7 @@ def run_timer(stdscr, seconds: int, label: str, task: str) -> bool:
     """
     Returns True if completed, False if aborted.
     Press 'q' to abort.
+    Press 'enter' to complete early.
     Displays task text on-screen.
     """
     start = time.time()
@@ -298,12 +305,13 @@ def run_timer(stdscr, seconds: int, label: str, task: str) -> bool:
             mins, secs = divmod(remaining, 60)
             percent = min(1.0, elapsed / seconds) if seconds > 0 else 1.0
             filled = int(bar_width * percent)
-            bar = "#" * filled + "-" * (bar_width - filled)
+            bar = "█" * filled + "░" * (bar_width - filled)
 
             draw_frame(stdscr, "Pomodoro Timer")
             h, w = stdscr.getmaxyx()
 
-            title_attr = curses.color_pair(1) | curses.A_BOLD if curses.has_colors() else curses.A_BOLD
+            title_attr = curses.color_pair(
+                1) | curses.A_BOLD if curses.has_colors() else curses.A_BOLD
             center_text(stdscr, 2, label, title_attr)
 
             # Task line (new)
@@ -317,11 +325,35 @@ def run_timer(stdscr, seconds: int, label: str, task: str) -> bool:
                 pass
 
             center_text(stdscr, 6, f"{mins:02}:{secs:02} remaining")
-            center_text(stdscr, 8, f"[{bar}] {int(percent * 100):3d}%")
+            center_text(stdscr, 8, f"{bar} {int(percent * 100):3d}%")
+            ascii_art_lines = [
+                "                ░░        ",
+                "              ░░          ",
+                "      ░░      ░░    ░░    ",
+                "        ░░██░░██░░░░      ",
+                "    ████▒▒░░░░░░▒▒████    ",
+                "  ██▒▒▒▒░░░░▒▒▒▒  ▒▒▒▒██  ",
+                "  ██▒▒░░▒▒▒▒▒▒▒▒▒▒    ██  ",
+                "██▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒  ▒▒██",
+                "██▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒  ██",
+                "██▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒██",
+                "██▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒██",
+                "  ██▓▓▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒██  ",
+                "  ██▓▓▓▓▓▓▒▒▒▒▒▒▒▒▒▒▒▒██  ",
+                "    ████▓▓▓▓▓▓▓▓▓▓████    ",
+                "        ██████████        "
+            ]
+
+            # Render each line of ASCII art, centered
+            for i, line in enumerate(ascii_art_lines):
+                center_text(stdscr, 10 + i, line)
 
             attr_footer = curses.color_pair(3) if curses.has_colors() else 0
             try:
-                stdscr.addstr(h - 2, 2, "q: abort timer"[: w - 4], attr_footer)
+                stdscr.addstr(
+                    h - 2, 2, "[q]: abort timer"[: w - 4], attr_footer)
+                stdscr.addstr(
+                    h - 3, 2, "[CR]: complete early"[: w - 4], attr_footer)
             except curses.error:
                 pass
 
@@ -330,12 +362,22 @@ def run_timer(stdscr, seconds: int, label: str, task: str) -> bool:
             ch = stdscr.getch()
             if ch in (ord("q"), ord("Q")):
                 return False
+            if ch in (curses.KEY_ENTER, 10, 13):  # Enter key
+                log_session(task, "COMPLETE EARLY")
+                draw_frame(stdscr, "Pomodoro Timer")
+                center_text(stdscr, 4, "Pomodoro marked as complete early!", curses.color_pair(
+                    4) | curses.A_BOLD if curses.has_colors() else curses.A_BOLD)
+                center_text(stdscr, 8, "Press any key to exit.")
+                stdscr.refresh()
+                stdscr.getch()
+                return True
 
             time.sleep(0.1)
 
         # Completed
         draw_frame(stdscr, "Pomodoro Timer")
-        ok_attr = curses.color_pair(4) | curses.A_BOLD if curses.has_colors() else curses.A_BOLD
+        ok_attr = curses.color_pair(
+            4) | curses.A_BOLD if curses.has_colors() else curses.A_BOLD
         center_text(stdscr, 4, f"{label} complete!", ok_attr)
 
         # Show task again on completion screen
@@ -373,7 +415,8 @@ def view_log(stdscr) -> None:
         h, w = stdscr.getmaxyx()
 
         if not lines:
-            message_box(stdscr, "Previous Pomodoros", ["No log entries found yet."], footer="Press any key...")
+            message_box(stdscr, "Previous Pomodoros", [
+                        "No log entries found yet."], footer="Press any key...")
             return
 
         view_h = max(1, h - 6)
@@ -396,9 +439,10 @@ def view_log(stdscr) -> None:
                 pass
             y += 1
 
-        footer = "Up/Down: scroll  PgUp/PgDn: page  Home/End  q: back"
+        footer = "[Up/Down]: scroll  PgUp/PgDn: page  Home/End  [q]: back"
         try:
-            stdscr.addstr(h - 2, 2, footer[: w - 4], curses.color_pair(3) if curses.has_colors() else 0)
+            stdscr.addstr(
+                h - 2, 2, footer[: w - 4], curses.color_pair(3) if curses.has_colors() else 0)
         except curses.error:
             pass
 
@@ -431,29 +475,35 @@ def adjust_settings(stdscr, cfg: dict) -> dict:
             f"Break duration (minutes): {cfg['break_minutes']}",
             "Save and return",
         ]
-        choice = menu(stdscr, "Settings", options, footer="Enter: select  q: back (without saving)")
+        choice = menu(stdscr, "Settings", options,
+                      footer="[CR]: select  [q]: back (without saving)")
         if choice == -1:
             return cfg
 
         if choice == 0:
-            val = prompt_input(stdscr, "Settings", "Set work minutes (1-180):", str(cfg["work_minutes"]))
+            val = prompt_input(
+                stdscr, "Settings", "Set work minutes (1-180):", str(cfg["work_minutes"]))
             if val is None:
                 continue
             try:
                 cfg["work_minutes"] = max(1, min(int(val), 180))
             except ValueError:
-                message_box(stdscr, "Settings", ["Invalid number."], footer="Press any key...")
+                message_box(stdscr, "Settings", [
+                            "Invalid number."], footer="Press any key...")
         elif choice == 1:
-            val = prompt_input(stdscr, "Settings", "Set break minutes (1-60):", str(cfg["break_minutes"]))
+            val = prompt_input(
+                stdscr, "Settings", "Set break minutes (1-60):", str(cfg["break_minutes"]))
             if val is None:
                 continue
             try:
                 cfg["break_minutes"] = max(1, min(int(val), 60))
             except ValueError:
-                message_box(stdscr, "Settings", ["Invalid number."], footer="Press any key...")
+                message_box(stdscr, "Settings", [
+                            "Invalid number."], footer="Press any key...")
         elif choice == 2:
             save_config(cfg)
-            message_box(stdscr, "Settings", ["Saved."], footer="Press any key...")
+            message_box(stdscr, "Settings", [
+                        "Saved."], footer="Press any key...")
             return cfg
 
 
@@ -461,7 +511,8 @@ def adjust_settings(stdscr, cfg: dict) -> dict:
 # Main flow
 # -----------------------------
 def start_pomodoro_flow(stdscr, cfg: dict) -> None:
-    task = prompt_input(stdscr, "Start Pomodoro", "What task are you working on?")
+    task = prompt_input(stdscr, "Start Pomodoro",
+                        "What task are you working on?")
     if task is None:
         return
     if task.strip() == "":
@@ -475,7 +526,8 @@ def start_pomodoro_flow(stdscr, cfg: dict) -> None:
     completed = run_timer(stdscr, work_seconds, "WORK", task)
     if not completed:
         log_session(task, "ABORT")
-        message_box(stdscr, "Pomodoro", ["Work timer aborted.", "Logged as ABORT."], footer="Press any key...")
+        message_box(stdscr, "Pomodoro", [
+                    "Work timer aborted.", "Logged as ABORT."], footer="Press any key...")
         return
 
     log_session(task, "END")
@@ -484,7 +536,7 @@ def start_pomodoro_flow(stdscr, cfg: dict) -> None:
         stdscr,
         "Break",
         ["Start break now", "Skip break and return to menu"],
-        footer="Enter: select  q: back (acts like skip)",
+        footer="[CR]: select  [q]: back (acts like skip)",
     )
     if choice == 0:
         run_timer(stdscr, break_seconds, "BREAK", task)
@@ -505,7 +557,7 @@ def main_curses(stdscr) -> None:
             stdscr,
             "PomoCLI (curses)",
             options,
-            footer="Up/Down: move  Enter: select  q: quit",
+            footer="[Up/Down]: move  [CR]: select  [q]: quit",
         )
 
         if choice in (-1, 3):
