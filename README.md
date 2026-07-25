@@ -44,6 +44,9 @@ Everything runs locally. Nothing phones home.
 - Configurable file location  
   The directory PomoCLI writes to can be set in-app or via the `POMOCLI_DIR` environment variable, and the log directory can be pointed anywhere you like.
 
+- Graphics mode (ASCII or Unicode)  
+  Defaults to a portable ASCII progress bar and art that works on any terminal. If your font supports block glyphs, switch to the Unicode look in Settings.
+
 - Completion alert  
   Timer completion triggers a terminal bell and a full-screen flash, repeated five times.
 
@@ -182,11 +185,16 @@ The directory is created automatically on first run. Configuration is stored in 
     {
       "work_minutes": 25,
       "break_minutes": 5,
-      "log_dir": "/Users/you/.pomocli"
+      "log_dir": "/Users/you/.pomocli",
+      "use_unicode": false
     }
 ```
 
 You may edit this file manually, but the recommended approach is to use the Settings option inside the application.
+
+### Graphics mode
+
+The timer's progress bar and art render in ASCII by default (`"use_unicode": false`), which works on every terminal. If your terminal font includes block-drawing glyphs (`█ ░ ▒ ▓`), toggle **Settings → Graphics** to Unicode for a fancier look. If you see `?` characters where the bar or art should be, your font doesn't support those glyphs — stay on ASCII.
 
 ### Choosing where files live
 

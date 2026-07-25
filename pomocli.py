@@ -55,7 +55,8 @@ def load_config() -> dict:
     global LOG_FILE
     cfg = {"work_minutes": DEFAULT_WORK_MIN,
            "break_minutes": DEFAULT_BREAK_MIN,
-           "log_dir": DEFAULT_LOG_DIR}
+           "log_dir": DEFAULT_LOG_DIR,
+           "use_unicode": False}
     try:
         with open(CONFIG_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -67,6 +68,8 @@ def load_config() -> dict:
                 log_dir = str(data.get("log_dir", cfg["log_dir"])).strip()
                 if log_dir:
                     cfg["log_dir"] = log_dir
+                cfg["use_unicode"] = bool(
+                    data.get("use_unicode", cfg["use_unicode"]))
     except FileNotFoundError:
         pass
     except Exception:
@@ -84,6 +87,7 @@ def save_config(cfg: dict) -> None:
         "work_minutes": int(cfg.get("work_minutes", DEFAULT_WORK_MIN)),
         "break_minutes": int(cfg.get("break_minutes", DEFAULT_BREAK_MIN)),
         "log_dir": str(cfg.get("log_dir", DEFAULT_LOG_DIR)).strip() or DEFAULT_LOG_DIR,
+        "use_unicode": bool(cfg.get("use_unicode", False)),
     }
     ensure_parent_dir(CONFIG_FILE)
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
@@ -313,13 +317,45 @@ def beep_and_flash(stdscr, iterations: int = 5, delay: float = 0.12) -> None:
 # -----------------------------
 # Timer UI
 # -----------------------------
-def run_timer(stdscr, seconds: int, label: str, task: str) -> bool:
+# Two art sets so the timer works on any terminal. Unicode uses block glyphs
+# (nicer, but needs a font that has them); ASCII works everywhere. Every line
+# in a set is padded to the same width so center_text aligns them consistently.
+UNICODE_ART = [
+    "                ░░        ",
+    "              ░░          ",
+    "      ░░      ░░    ░░    ",
+    "        ░░██░░██░░░░      ",
+    "    ████▒▒░░░░░░▒▒████    ",
+    "  ██▒▒▒▒░░░░▒▒▒▒  ▒▒▒▒██  ",
+    "  ██▒▒░░▒▒▒▒▒▒▒▒▒▒    ██  ",
+    "██▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒  ▒▒██",
+    "██▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒  ██",
+    "██▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒██",
+    "██▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒██",
+    "  ██▓▓▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒██  ",
+    "  ██▓▓▓▓▓▓▒▒▒▒▒▒▒▒▒▒▒▒██  ",
+    "    ████▓▓▓▓▓▓▓▓▓▓████    ",
+    "        ██████████        ",
+]
+
+ASCII_ART = [
+    " /\\_/\\ ",
+    "( o.o )",
+    " > ^ < ",
+]
+
+
+def run_timer(stdscr, seconds: int, label: str, task: str,
+              use_unicode: bool = False) -> bool:
     """
     Returns True if completed, False if aborted.
     Press 'q' to abort.
     Press 'enter' to complete early.
     Displays task text on-screen.
+    `use_unicode` selects block glyphs vs. an ASCII-safe fallback.
     """
+    fill_ch, empty_ch = ("█", "░") if use_unicode else ("#", "-")
+    art_lines = UNICODE_ART if use_unicode else ASCII_ART
     start = time.time()
     end = start + seconds
     bar_width = 30
@@ -337,7 +373,7 @@ def run_timer(stdscr, seconds: int, label: str, task: str) -> bool:
             mins, secs = divmod(remaining, 60)
             percent = min(1.0, elapsed / seconds) if seconds > 0 else 1.0
             filled = int(bar_width * percent)
-            bar = "█" * filled + "░" * (bar_width - filled)
+            bar = fill_ch * filled + empty_ch * (bar_width - filled)
 
             draw_frame(stdscr, "Pomodoro Timer")
             h, w = stdscr.getmaxyx()
@@ -357,27 +393,13 @@ def run_timer(stdscr, seconds: int, label: str, task: str) -> bool:
                 pass
 
             center_text(stdscr, 6, f"{mins:02}:{secs:02} remaining")
-            center_text(stdscr, 8, f"{bar} {int(percent * 100):3d}%")
-            ascii_art_lines = [
-                "                ░░        ",
-                "              ░░          ",
-                "      ░░      ░░    ░░    ",
-                "        ░░██░░██░░░░      ",
-                "    ████▒▒░░░░░░▒▒████    ",
-                "  ██▒▒▒▒░░░░▒▒▒▒  ▒▒▒▒██  ",
-                "  ██▒▒░░▒▒▒▒▒▒▒▒▒▒    ██  ",
-                "██▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒  ▒▒██",
-                "██▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒  ██",
-                "██▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒██",
-                "██▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒██",
-                "  ██▓▓▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒██  ",
-                "  ██▓▓▓▓▓▓▒▒▒▒▒▒▒▒▒▒▒▒██  ",
-                "    ████▓▓▓▓▓▓▓▓▓▓████    ",
-                "        ██████████        "
-            ]
+            if use_unicode:
+                center_text(stdscr, 8, f"{bar} {int(percent * 100):3d}%")
+            else:
+                center_text(stdscr, 8, f"[{bar}] {int(percent * 100):3d}%")
 
-            # Render each line of ASCII art, centered
-            for i, line in enumerate(ascii_art_lines):
+            # Render each line of the (Unicode or ASCII) art, centered
+            for i, line in enumerate(art_lines):
                 center_text(stdscr, 10 + i, line)
 
             attr_footer = curses.color_pair(3) if curses.has_colors() else 0
@@ -506,6 +528,7 @@ def adjust_settings(stdscr, cfg: dict) -> dict:
             f"Work duration (minutes):  {cfg['work_minutes']}",
             f"Break duration (minutes): {cfg['break_minutes']}",
             f"Log directory: {cfg.get('log_dir', DEFAULT_LOG_DIR)}",
+            f"Graphics: {'Unicode' if cfg.get('use_unicode', False) else 'ASCII'}",
             "Save and return",
         ]
         choice = menu(stdscr, "Settings", options,
@@ -550,6 +573,8 @@ def adjust_settings(stdscr, cfg: dict) -> dict:
                             "Could not use that directory:", str(e)],
                             footer="Press any key...")
         elif choice == 3:
+            cfg["use_unicode"] = not cfg.get("use_unicode", False)
+        elif choice == 4:
             save_config(cfg)
             message_box(stdscr, "Settings", [
                         "Saved."], footer="Press any key...")
@@ -572,7 +597,8 @@ def start_pomodoro_flow(stdscr, cfg: dict) -> None:
 
     log_session(task, "START")
 
-    completed = run_timer(stdscr, work_seconds, "WORK", task)
+    use_unicode = cfg.get("use_unicode", False)
+    completed = run_timer(stdscr, work_seconds, "WORK", task, use_unicode)
     if not completed:
         log_session(task, "ABORT")
         message_box(stdscr, "Pomodoro", [
@@ -588,7 +614,7 @@ def start_pomodoro_flow(stdscr, cfg: dict) -> None:
         footer="[CR]: select  [q]: back (acts like skip)",
     )
     if choice == 0:
-        run_timer(stdscr, break_seconds, "BREAK", task)
+        run_timer(stdscr, break_seconds, "BREAK", task, use_unicode)
 
 
 def main_curses(stdscr) -> None:
