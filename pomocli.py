@@ -13,31 +13,63 @@ Changes in this version:
 
 import curses
 import json
+import locale
 import os
 import time
 from datetime import datetime
 from typing import List, Optional
 
 # Files
-LOG_FILE = os.path.expanduser("~/pomocli_log.txt")
-CONFIG_FILE = os.path.expanduser("~/.pomocli_config.json")
+# Base directory for PomoCLI's data. Override with the POMOCLI_DIR environment
+# variable; otherwise defaults to a dedicated ~/.pomocli directory. The config
+# file must live at a known location so it can be found before it is read.
+BASE_DIR = os.environ.get("POMOCLI_DIR") or os.path.expanduser("~/.pomocli")
+CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
 
 # Defaults (minutes)
 DEFAULT_WORK_MIN = 25
 DEFAULT_BREAK_MIN = 5
+
+# The log directory is user-configurable (see Settings); it defaults to the
+# base directory. LOG_FILE is resolved from config at load time.
+DEFAULT_LOG_DIR = BASE_DIR
+LOG_FILE = os.path.join(BASE_DIR, "pomocli_log.txt")
+
+
+def ensure_parent_dir(path: str) -> None:
+    """Create the parent directory of `path` if it does not already exist."""
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+
+
+def resolve_log_file(cfg: dict) -> str:
+    log_dir = cfg.get("log_dir") or DEFAULT_LOG_DIR
+    return os.path.join(os.path.expanduser(log_dir), "pomocli_log.txt")
 
 
 # -----------------------------
 # Persistence
 # -----------------------------
 def load_config() -> dict:
-    cfg = {"work_minutes": DEFAULT_WORK_MIN, "break_minutes": DEFAULT_BREAK_MIN}
+    global LOG_FILE
+    cfg = {"work_minutes": DEFAULT_WORK_MIN,
+           "break_minutes": DEFAULT_BREAK_MIN,
+           "log_dir": DEFAULT_LOG_DIR,
+           "use_unicode": False}
     try:
         with open(CONFIG_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
             if isinstance(data, dict):
-                cfg["work_minutes"] = int(data.get("work_minutes", cfg["work_minutes"]))
-                cfg["break_minutes"] = int(data.get("break_minutes", cfg["break_minutes"]))
+                cfg["work_minutes"] = int(
+                    data.get("work_minutes", cfg["work_minutes"]))
+                cfg["break_minutes"] = int(
+                    data.get("break_minutes", cfg["break_minutes"]))
+                log_dir = str(data.get("log_dir", cfg["log_dir"])).strip()
+                if log_dir:
+                    cfg["log_dir"] = log_dir
+                cfg["use_unicode"] = bool(
+                    data.get("use_unicode", cfg["use_unicode"]))
     except FileNotFoundError:
         pass
     except Exception:
@@ -45,16 +77,22 @@ def load_config() -> dict:
 
     cfg["work_minutes"] = max(1, min(cfg["work_minutes"], 180))
     cfg["break_minutes"] = max(1, min(cfg["break_minutes"], 60))
+    LOG_FILE = resolve_log_file(cfg)
     return cfg
 
 
 def save_config(cfg: dict) -> None:
+    global LOG_FILE
     safe = {
         "work_minutes": int(cfg.get("work_minutes", DEFAULT_WORK_MIN)),
         "break_minutes": int(cfg.get("break_minutes", DEFAULT_BREAK_MIN)),
+        "log_dir": str(cfg.get("log_dir", DEFAULT_LOG_DIR)).strip() or DEFAULT_LOG_DIR,
+        "use_unicode": bool(cfg.get("use_unicode", False)),
     }
+    ensure_parent_dir(CONFIG_FILE)
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(safe, f, indent=2)
+    LOG_FILE = resolve_log_file(safe)
 
 
 # -----------------------------
@@ -62,6 +100,7 @@ def save_config(cfg: dict) -> None:
 # -----------------------------
 def log_session(task_description: str, state: str) -> None:
     timestamp = datetime.now().strftime("%Y-%m-%d T=%H:%M")
+    ensure_parent_dir(LOG_FILE)
     with open(LOG_FILE, "a", encoding="utf-8") as f:
         f.write(f"{timestamp} - {state}: {task_description}\n")
 
@@ -89,7 +128,8 @@ def init_curses(stdscr) -> None:
         curses.start_color()
         curses.use_default_colors()
         curses.init_pair(1, curses.COLOR_CYAN, -1)     # Title
-        curses.init_pair(2, curses.COLOR_BLACK, curses.COLOR_WHITE)  # Highlight
+        curses.init_pair(2, curses.COLOR_BLACK,
+                         curses.COLOR_WHITE)  # Highlight
         curses.init_pair(3, curses.COLOR_YELLOW, -1)   # Status
         curses.init_pair(4, curses.COLOR_GREEN, -1)    # Success
 
@@ -112,7 +152,8 @@ def draw_frame(stdscr, title: str = "") -> None:
         pass
 
     if title:
-        attr = curses.color_pair(1) | curses.A_BOLD if curses.has_colors() else curses.A_BOLD
+        attr = curses.color_pair(
+            1) | curses.A_BOLD if curses.has_colors() else curses.A_BOLD
         header = f" {title} "
         x = max(1, (w - len(header)) // 2)
         try:
@@ -167,7 +208,7 @@ def prompt_input(stdscr, title: str, prompt: str, initial: str = "") -> Optional
                 buf.append(c)
 
 
-def menu(stdscr, title: str, options: List[str], footer: str = "q: back/quit") -> int:
+def menu(stdscr, title: str, options: List[str], footer: str = "[q]: back/quit") -> int:
     idx = 0
     while True:
         draw_frame(stdscr, title)
@@ -185,7 +226,8 @@ def menu(stdscr, title: str, options: List[str], footer: str = "q: back/quit") -
             if y >= h - 3:
                 break
             if i == idx:
-                attr = curses.color_pair(2) | curses.A_BOLD if curses.has_colors() else curses.A_REVERSE
+                attr = curses.color_pair(
+                    2) | curses.A_BOLD if curses.has_colors() else curses.A_REVERSE
             else:
                 attr = 0
             line = f"  {opt}"
@@ -275,12 +317,45 @@ def beep_and_flash(stdscr, iterations: int = 5, delay: float = 0.12) -> None:
 # -----------------------------
 # Timer UI
 # -----------------------------
-def run_timer(stdscr, seconds: int, label: str, task: str) -> bool:
+# Two art sets so the timer works on any terminal. Unicode uses block glyphs
+# (nicer, but needs a font that has them); ASCII works everywhere. Every line
+# in a set is padded to the same width so center_text aligns them consistently.
+UNICODE_ART = [
+    "                ░░        ",
+    "              ░░          ",
+    "      ░░      ░░    ░░    ",
+    "        ░░██░░██░░░░      ",
+    "    ████▒▒░░░░░░▒▒████    ",
+    "  ██▒▒▒▒░░░░▒▒▒▒  ▒▒▒▒██  ",
+    "  ██▒▒░░▒▒▒▒▒▒▒▒▒▒    ██  ",
+    "██▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒  ▒▒██",
+    "██▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒  ██",
+    "██▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒██",
+    "██▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒██",
+    "  ██▓▓▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒██  ",
+    "  ██▓▓▓▓▓▓▒▒▒▒▒▒▒▒▒▒▒▒██  ",
+    "    ████▓▓▓▓▓▓▓▓▓▓████    ",
+    "        ██████████        ",
+]
+
+ASCII_ART = [
+    " /\\_/\\ ",
+    "( o.o )",
+    " > ^ < ",
+]
+
+
+def run_timer(stdscr, seconds: int, label: str, task: str,
+              use_unicode: bool = False) -> bool:
     """
     Returns True if completed, False if aborted.
     Press 'q' to abort.
+    Press 'enter' to complete early.
     Displays task text on-screen.
+    `use_unicode` selects block glyphs vs. an ASCII-safe fallback.
     """
+    fill_ch, empty_ch = ("█", "░") if use_unicode else ("#", "-")
+    art_lines = UNICODE_ART if use_unicode else ASCII_ART
     start = time.time()
     end = start + seconds
     bar_width = 30
@@ -298,12 +373,13 @@ def run_timer(stdscr, seconds: int, label: str, task: str) -> bool:
             mins, secs = divmod(remaining, 60)
             percent = min(1.0, elapsed / seconds) if seconds > 0 else 1.0
             filled = int(bar_width * percent)
-            bar = "#" * filled + "-" * (bar_width - filled)
+            bar = fill_ch * filled + empty_ch * (bar_width - filled)
 
             draw_frame(stdscr, "Pomodoro Timer")
             h, w = stdscr.getmaxyx()
 
-            title_attr = curses.color_pair(1) | curses.A_BOLD if curses.has_colors() else curses.A_BOLD
+            title_attr = curses.color_pair(
+                1) | curses.A_BOLD if curses.has_colors() else curses.A_BOLD
             center_text(stdscr, 2, label, title_attr)
 
             # Task line (new)
@@ -317,11 +393,21 @@ def run_timer(stdscr, seconds: int, label: str, task: str) -> bool:
                 pass
 
             center_text(stdscr, 6, f"{mins:02}:{secs:02} remaining")
-            center_text(stdscr, 8, f"[{bar}] {int(percent * 100):3d}%")
+            if use_unicode:
+                center_text(stdscr, 8, f"{bar} {int(percent * 100):3d}%")
+            else:
+                center_text(stdscr, 8, f"[{bar}] {int(percent * 100):3d}%")
+
+            # Render each line of the (Unicode or ASCII) art, centered
+            for i, line in enumerate(art_lines):
+                center_text(stdscr, 10 + i, line)
 
             attr_footer = curses.color_pair(3) if curses.has_colors() else 0
             try:
-                stdscr.addstr(h - 2, 2, "q: abort timer"[: w - 4], attr_footer)
+                stdscr.addstr(
+                    h - 2, 2, "[q]: abort timer"[: w - 4], attr_footer)
+                stdscr.addstr(
+                    h - 3, 2, "[CR]: complete early"[: w - 4], attr_footer)
             except curses.error:
                 pass
 
@@ -330,12 +416,22 @@ def run_timer(stdscr, seconds: int, label: str, task: str) -> bool:
             ch = stdscr.getch()
             if ch in (ord("q"), ord("Q")):
                 return False
+            if ch in (curses.KEY_ENTER, 10, 13):  # Enter key
+                log_session(task, "COMPLETE EARLY")
+                draw_frame(stdscr, "Pomodoro Timer")
+                center_text(stdscr, 4, "Pomodoro marked as complete early!", curses.color_pair(
+                    4) | curses.A_BOLD if curses.has_colors() else curses.A_BOLD)
+                center_text(stdscr, 8, "Press any key to exit.")
+                stdscr.refresh()
+                stdscr.getch()
+                return True
 
             time.sleep(0.1)
 
         # Completed
         draw_frame(stdscr, "Pomodoro Timer")
-        ok_attr = curses.color_pair(4) | curses.A_BOLD if curses.has_colors() else curses.A_BOLD
+        ok_attr = curses.color_pair(
+            4) | curses.A_BOLD if curses.has_colors() else curses.A_BOLD
         center_text(stdscr, 4, f"{label} complete!", ok_attr)
 
         # Show task again on completion screen
@@ -373,7 +469,8 @@ def view_log(stdscr) -> None:
         h, w = stdscr.getmaxyx()
 
         if not lines:
-            message_box(stdscr, "Previous Pomodoros", ["No log entries found yet."], footer="Press any key...")
+            message_box(stdscr, "Previous Pomodoros", [
+                        "No log entries found yet."], footer="Press any key...")
             return
 
         view_h = max(1, h - 6)
@@ -396,9 +493,10 @@ def view_log(stdscr) -> None:
                 pass
             y += 1
 
-        footer = "Up/Down: scroll  PgUp/PgDn: page  Home/End  q: back"
+        footer = "[Up/Down]: scroll  PgUp/PgDn: page  Home/End  [q]: back"
         try:
-            stdscr.addstr(h - 2, 2, footer[: w - 4], curses.color_pair(3) if curses.has_colors() else 0)
+            stdscr.addstr(
+                h - 2, 2, footer[: w - 4], curses.color_pair(3) if curses.has_colors() else 0)
         except curses.error:
             pass
 
@@ -429,31 +527,57 @@ def adjust_settings(stdscr, cfg: dict) -> dict:
         options = [
             f"Work duration (minutes):  {cfg['work_minutes']}",
             f"Break duration (minutes): {cfg['break_minutes']}",
+            f"Log directory: {cfg.get('log_dir', DEFAULT_LOG_DIR)}",
+            f"Graphics: {'Unicode' if cfg.get('use_unicode', False) else 'ASCII'}",
             "Save and return",
         ]
-        choice = menu(stdscr, "Settings", options, footer="Enter: select  q: back (without saving)")
+        choice = menu(stdscr, "Settings", options,
+                      footer="[CR]: select  [q]: back (without saving)")
         if choice == -1:
             return cfg
 
         if choice == 0:
-            val = prompt_input(stdscr, "Settings", "Set work minutes (1-180):", str(cfg["work_minutes"]))
+            val = prompt_input(
+                stdscr, "Settings", "Set work minutes (1-180):", str(cfg["work_minutes"]))
             if val is None:
                 continue
             try:
                 cfg["work_minutes"] = max(1, min(int(val), 180))
             except ValueError:
-                message_box(stdscr, "Settings", ["Invalid number."], footer="Press any key...")
+                message_box(stdscr, "Settings", [
+                            "Invalid number."], footer="Press any key...")
         elif choice == 1:
-            val = prompt_input(stdscr, "Settings", "Set break minutes (1-60):", str(cfg["break_minutes"]))
+            val = prompt_input(
+                stdscr, "Settings", "Set break minutes (1-60):", str(cfg["break_minutes"]))
             if val is None:
                 continue
             try:
                 cfg["break_minutes"] = max(1, min(int(val), 60))
             except ValueError:
-                message_box(stdscr, "Settings", ["Invalid number."], footer="Press any key...")
+                message_box(stdscr, "Settings", [
+                            "Invalid number."], footer="Press any key...")
         elif choice == 2:
+            val = prompt_input(
+                stdscr, "Settings", "Log directory:",
+                str(cfg.get("log_dir", DEFAULT_LOG_DIR)))
+            if val is None:
+                continue
+            val = val.strip()
+            if val == "":
+                continue
+            try:
+                os.makedirs(os.path.expanduser(val), exist_ok=True)
+                cfg["log_dir"] = val
+            except Exception as e:
+                message_box(stdscr, "Settings", [
+                            "Could not use that directory:", str(e)],
+                            footer="Press any key...")
+        elif choice == 3:
+            cfg["use_unicode"] = not cfg.get("use_unicode", False)
+        elif choice == 4:
             save_config(cfg)
-            message_box(stdscr, "Settings", ["Saved."], footer="Press any key...")
+            message_box(stdscr, "Settings", [
+                        "Saved."], footer="Press any key...")
             return cfg
 
 
@@ -461,7 +585,8 @@ def adjust_settings(stdscr, cfg: dict) -> dict:
 # Main flow
 # -----------------------------
 def start_pomodoro_flow(stdscr, cfg: dict) -> None:
-    task = prompt_input(stdscr, "Start Pomodoro", "What task are you working on?")
+    task = prompt_input(stdscr, "Start Pomodoro",
+                        "What task are you working on?")
     if task is None:
         return
     if task.strip() == "":
@@ -472,10 +597,12 @@ def start_pomodoro_flow(stdscr, cfg: dict) -> None:
 
     log_session(task, "START")
 
-    completed = run_timer(stdscr, work_seconds, "WORK", task)
+    use_unicode = cfg.get("use_unicode", False)
+    completed = run_timer(stdscr, work_seconds, "WORK", task, use_unicode)
     if not completed:
         log_session(task, "ABORT")
-        message_box(stdscr, "Pomodoro", ["Work timer aborted.", "Logged as ABORT."], footer="Press any key...")
+        message_box(stdscr, "Pomodoro", [
+                    "Work timer aborted.", "Logged as ABORT."], footer="Press any key...")
         return
 
     log_session(task, "END")
@@ -484,10 +611,10 @@ def start_pomodoro_flow(stdscr, cfg: dict) -> None:
         stdscr,
         "Break",
         ["Start break now", "Skip break and return to menu"],
-        footer="Enter: select  q: back (acts like skip)",
+        footer="[CR]: select  [q]: back (acts like skip)",
     )
     if choice == 0:
-        run_timer(stdscr, break_seconds, "BREAK", task)
+        run_timer(stdscr, break_seconds, "BREAK", task, use_unicode)
 
 
 def main_curses(stdscr) -> None:
@@ -505,7 +632,7 @@ def main_curses(stdscr) -> None:
             stdscr,
             "PomoCLI (curses)",
             options,
-            footer="Up/Down: move  Enter: select  q: quit",
+            footer="[Up/Down]: move  [CR]: select  [q]: quit",
         )
 
         if choice in (-1, 3):
@@ -521,6 +648,9 @@ def main_curses(stdscr) -> None:
 
 
 def main() -> None:
+    # Use the terminal's preferred encoding so curses can draw the Unicode
+    # progress bar and art instead of falling back to ASCII "?" glyphs.
+    locale.setlocale(locale.LC_ALL, "")
     curses.wrapper(main_curses)
 
 
