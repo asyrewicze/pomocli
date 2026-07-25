@@ -207,9 +207,11 @@ In other words, on a default macOS Python setup the Unicode mode shows `?` no ma
 
 #### Getting Unicode mode to work
 
-The fix is a Python whose curses is linked against **wide** ncurses (`ncursesw`):
+Whatever the platform, two things must both be true: your terminal must use a **UTF-8 locale** (check with `locale`; look for `UTF-8`) and a **font that includes the block glyphs** (most monospace fonts do). Beyond that, the deciding factor is whether your Python's curses is linked against **wide** ncurses (`ncursesw`).
 
-- **macOS:** the simplest reliable route is a conda/miniforge Python, which is built against `ncursesw`:
+- **Linux:** the easy case. Distro Python links `ncursesw`, so Unicode mode generally works out of the box in any UTF-8 terminal with a suitable font. If you still see `?`, confirm your locale is UTF-8 (`echo $LANG`) rather than `C`/`POSIX`.
+
+- **macOS:** the hard case. The system ships only the old *narrow* ncurses, and stock Homebrew / python.org Python link against it, so Unicode mode shows `?` no matter the terminal or font. The simplest reliable fix is a conda/miniforge Python, which is built against `ncursesw`:
 
   ```bash
   brew install miniforge
@@ -220,9 +222,9 @@ The fix is a Python whose curses is linked against **wide** ncurses (`ncursesw`)
 
   (`pyenv` can also build a wide-curses Python, but it requires pointing its configure flags at a wide ncurses and is fiddlier.)
 
-- **Most Linux distros:** already link `ncursesw`, so Unicode mode generally works out of the box once your terminal font has the glyphs.
+- **Windows:** curses is not part of the standard library on Windows, so PomoCLI needs the `windows-curses` package (`pip install windows-curses`), which is built on PDCurses and has inconsistent wide-character support. Expect ASCII to be the dependable choice here. For the full Unicode experience on Windows, run PomoCLI under **WSL** (Windows Subsystem for Linux) in Windows Terminal with a font like Cascadia Mono; inside WSL it behaves exactly like the Linux case above.
 
-This only affects *your* machine - anyone running PomoCLI on a stock macOS Python will still need ASCII, which is why it stays the default.
+This only affects *your* machine. Anyone running PomoCLI on a stock macOS Python (or plain Windows) will still need ASCII, which is why it stays the default.
 
 ### Choosing where files live
 
