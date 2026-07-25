@@ -203,7 +203,7 @@ The timer's progress bar and art come in two styles, selectable via **Settings �
 
 You might expect a modern terminal with a good font (Nerd Fonts, etc.) to show the Unicode blocks fine - and for most output, it would. But PomoCLI is a **curses** app, and curses draws through the `ncurses` library, not directly to the terminal. On **macOS**, the stock Homebrew / python.org Python links its `curses` module against Apple's old system ncurses (`/usr/lib/libncurses.5.4.dylib`), whose wide-character handling is limited enough that multibyte glyphs come out as `?` **before they ever reach the terminal** - so no font, locale, or terminal emulator can rescue it. A Python whose `curses` is built against a full modern **wide** ncurses (`ncursesw`) renders them correctly.
 
-In practice, on a default macOS Python setup the Unicode mode shows `?` no matter what. Since PomoCLI is meant to run on anyone's machine, ASCII is the safe, portable default. If you *see* `?` in Unicode mode, that's this issue - switch back to ASCII (or use a wide-ncurses Python, see below).
+In practice, on a default macOS Python setup the Unicode mode shows `?` no matter what. Since PomoCLI is meant to run on anyone's machine, ASCII is the safe, portable default. If you *see* `?` in Unicode mode, that's this issue - switch back to ASCII.
 
 #### Getting Unicode mode to work
 
@@ -211,30 +211,7 @@ Whatever the platform, two things must both be true: your terminal must use a **
 
 - **Linux:** the easy case. Distro Python links `ncursesw`, so Unicode mode generally works out of the box in any UTF-8 terminal with a suitable font. If you still see `?`, confirm your locale is UTF-8 (`echo $LANG`) rather than `C`/`POSIX`.
 
-- **macOS:** the hard case. Stock Homebrew / python.org Python link `curses` against Apple's system ncurses, so Unicode mode shows `?` no matter the terminal or font. The fix is a Python whose `curses` was *built against* Homebrew's wide `ncursesw` - there is no drop-in library swap, because the stock `_curses` module hardcodes Apple's library by absolute path and even links against Apple-specific symbol versions, so you can't just install `ncursesw` and redirect to it. Two ways to get a wide-ncurses Python:
-
-  **Option A - pyenv (a normal Python, no extra ecosystem):**
-
-  ```bash
-  brew install pyenv ncurses
-  CPPFLAGS="-I$(brew --prefix ncurses)/include" \
-  LDFLAGS="-L$(brew --prefix ncurses)/lib" \
-  PKG_CONFIG_PATH="$(brew --prefix ncurses)/lib/pkgconfig" \
-    pyenv install 3.12
-  pyenv shell 3.12
-  python pomocli.py        # then Settings → Graphics → Unicode
-  ```
-
-  **Option B - conda/miniforge (turnkey; its Python already links `ncursesw`):**
-
-  ```bash
-  brew install miniforge
-  conda create -n pomo python=3.12 -y
-  conda activate pomo
-  python pomocli.py        # then Settings → Graphics → Unicode
-  ```
-
-  Both compile or ship a fresh Python; pick whichever fits your setup. This only affects the Python you run PomoCLI with.
+- **macOS: use ASCII mode.** Stock Homebrew / python.org Python link `curses` against Apple's system ncurses, so Unicode mode shows `?` no matter the terminal or font. It *is* possible to get Unicode working by running PomoCLI under a Python whose `curses` is built against a wide `ncursesw` (via a custom source build or a separate Python distribution), but every such route means installing or building extra software just for cosmetics - that's out of scope for this tool and this documentation. On macOS, stick with ASCII.
 
 - **Windows:** curses is not part of the standard library on Windows, so PomoCLI needs the `windows-curses` package (`pip install windows-curses`), which is built on PDCurses and has inconsistent wide-character support. Expect ASCII to be the dependable choice here. For the full Unicode experience on Windows, run PomoCLI under **WSL** (Windows Subsystem for Linux) in Windows Terminal with a font like Cascadia Mono; inside WSL it behaves exactly like the Linux case above.
 
