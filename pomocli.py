@@ -19,20 +19,42 @@ from datetime import datetime
 from typing import List, Optional
 
 # Files
-LOG_FILE = os.path.expanduser("~/Scripts/pomocli/pomocli_log.txt")
-CONFIG_FILE = os.path.expanduser("~/Scripts/pomocli/.pomocli_config.json")
+# Base directory for PomoCLI's data. Override with the POMOCLI_DIR environment
+# variable; otherwise defaults to a dedicated ~/.pomocli directory. The config
+# file must live at a known location so it can be found before it is read.
+BASE_DIR = os.environ.get("POMOCLI_DIR") or os.path.expanduser("~/.pomocli")
+CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
 
 # Defaults (minutes)
 DEFAULT_WORK_MIN = 25
 DEFAULT_BREAK_MIN = 5
+
+# The log directory is user-configurable (see Settings); it defaults to the
+# base directory. LOG_FILE is resolved from config at load time.
+DEFAULT_LOG_DIR = BASE_DIR
+LOG_FILE = os.path.join(BASE_DIR, "pomocli_log.txt")
+
+
+def ensure_parent_dir(path: str) -> None:
+    """Create the parent directory of `path` if it does not already exist."""
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+
+
+def resolve_log_file(cfg: dict) -> str:
+    log_dir = cfg.get("log_dir") or DEFAULT_LOG_DIR
+    return os.path.join(os.path.expanduser(log_dir), "pomocli_log.txt")
 
 
 # -----------------------------
 # Persistence
 # -----------------------------
 def load_config() -> dict:
+    global LOG_FILE
     cfg = {"work_minutes": DEFAULT_WORK_MIN,
-           "break_minutes": DEFAULT_BREAK_MIN}
+           "break_minutes": DEFAULT_BREAK_MIN,
+           "log_dir": DEFAULT_LOG_DIR}
     try:
         with open(CONFIG_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -41,6 +63,9 @@ def load_config() -> dict:
                     data.get("work_minutes", cfg["work_minutes"]))
                 cfg["break_minutes"] = int(
                     data.get("break_minutes", cfg["break_minutes"]))
+                log_dir = str(data.get("log_dir", cfg["log_dir"])).strip()
+                if log_dir:
+                    cfg["log_dir"] = log_dir
     except FileNotFoundError:
         pass
     except Exception:
@@ -48,16 +73,21 @@ def load_config() -> dict:
 
     cfg["work_minutes"] = max(1, min(cfg["work_minutes"], 180))
     cfg["break_minutes"] = max(1, min(cfg["break_minutes"], 60))
+    LOG_FILE = resolve_log_file(cfg)
     return cfg
 
 
 def save_config(cfg: dict) -> None:
+    global LOG_FILE
     safe = {
         "work_minutes": int(cfg.get("work_minutes", DEFAULT_WORK_MIN)),
         "break_minutes": int(cfg.get("break_minutes", DEFAULT_BREAK_MIN)),
+        "log_dir": str(cfg.get("log_dir", DEFAULT_LOG_DIR)).strip() or DEFAULT_LOG_DIR,
     }
+    ensure_parent_dir(CONFIG_FILE)
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(safe, f, indent=2)
+    LOG_FILE = resolve_log_file(safe)
 
 
 # -----------------------------
@@ -65,6 +95,7 @@ def save_config(cfg: dict) -> None:
 # -----------------------------
 def log_session(task_description: str, state: str) -> None:
     timestamp = datetime.now().strftime("%Y-%m-%d T=%H:%M")
+    ensure_parent_dir(LOG_FILE)
     with open(LOG_FILE, "a", encoding="utf-8") as f:
         f.write(f"{timestamp} - {state}: {task_description}\n")
 
@@ -473,6 +504,7 @@ def adjust_settings(stdscr, cfg: dict) -> dict:
         options = [
             f"Work duration (minutes):  {cfg['work_minutes']}",
             f"Break duration (minutes): {cfg['break_minutes']}",
+            f"Log directory: {cfg.get('log_dir', DEFAULT_LOG_DIR)}",
             "Save and return",
         ]
         choice = menu(stdscr, "Settings", options,
@@ -501,6 +533,22 @@ def adjust_settings(stdscr, cfg: dict) -> dict:
                 message_box(stdscr, "Settings", [
                             "Invalid number."], footer="Press any key...")
         elif choice == 2:
+            val = prompt_input(
+                stdscr, "Settings", "Log directory:",
+                str(cfg.get("log_dir", DEFAULT_LOG_DIR)))
+            if val is None:
+                continue
+            val = val.strip()
+            if val == "":
+                continue
+            try:
+                os.makedirs(os.path.expanduser(val), exist_ok=True)
+                cfg["log_dir"] = val
+            except Exception as e:
+                message_box(stdscr, "Settings", [
+                            "Could not use that directory:", str(e)],
+                            footer="Press any key...")
+        elif choice == 3:
             save_config(cfg)
             message_box(stdscr, "Settings", [
                         "Saved."], footer="Press any key...")
