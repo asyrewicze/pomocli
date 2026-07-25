@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
-pomocli_curses.py
+pomocli.py
 A curses-based Pomodoro CLI with:
 - Start Pomodoro (task prompt -> work timer -> break timer)
+- Complete a Pomodoro early with Enter (logged as COMPLETE EARLY)
 - View previous pomodoros (from a text log file)
-- Settings (adjust work/break durations; persisted in JSON)
+- Settings (work/break durations, log directory, ASCII/Unicode graphics)
 
-Changes in this version:
-- End-of-timer alert: beep + flash, 5 iterations
-- Timer UI displays the current task text
+Files live under ~/.pomocli by default (override with POMOCLI_DIR).
 """
 
+import argparse
 import curses
 import json
 import locale
@@ -18,6 +18,8 @@ import os
 import time
 from datetime import datetime
 from typing import List, Optional
+
+__version__ = "1.0.0"
 
 # Files
 # Base directory for PomoCLI's data. Override with the POMOCLI_DIR environment
@@ -648,6 +650,14 @@ def main_curses(stdscr) -> None:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(
+        prog="pomocli",
+        description="A curses-based Pomodoro timer for the terminal.")
+    parser.add_argument(
+        "--version", action="version",
+        version=f"%(prog)s {__version__}")
+    parser.parse_args()
+
     # Use the terminal's preferred encoding so curses can draw the Unicode
     # progress bar and art instead of falling back to ASCII "?" glyphs.
     locale.setlocale(locale.LC_ALL, "")
