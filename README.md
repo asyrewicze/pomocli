@@ -224,8 +224,6 @@ Whatever the platform, two things must both be true: your terminal must use a **
 
 - **Windows:** curses is not part of the standard library on Windows, so PomoCLI needs the `windows-curses` package (`pip install windows-curses`), which is built on PDCurses and has inconsistent wide-character support. Expect ASCII to be the dependable choice here. For the full Unicode experience on Windows, run PomoCLI under **WSL** (Windows Subsystem for Linux) in Windows Terminal with a font like Cascadia Mono; inside WSL it behaves exactly like the Linux case above.
 
-This only affects *your* machine. Anyone running PomoCLI on a stock macOS Python (or plain Windows) will still need ASCII, which is why it stays the default.
-
 ### Choosing where files live
 
 There are two ways to change PomoCLI's location:
