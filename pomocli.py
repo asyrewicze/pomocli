@@ -210,7 +210,8 @@ def prompt_input(stdscr, title: str, prompt: str, initial: str = "") -> Optional
                 buf.append(c)
 
 
-def menu(stdscr, title: str, options: List[str], footer: str = "[q]: back/quit") -> int:
+def menu(stdscr, title: str, options: List[str], footer: str = "[q]: back/quit",
+         corner: str = "") -> int:
     idx = 0
     while True:
         draw_frame(stdscr, title)
@@ -221,6 +222,15 @@ def menu(stdscr, title: str, options: List[str], footer: str = "[q]: back/quit")
             stdscr.addstr(h - 2, 2, footer[: w - 4], attr_footer)
         except curses.error:
             pass
+
+        # Optional version/label tucked into the bottom-right border
+        if corner:
+            label = f" {corner} "
+            try:
+                stdscr.addstr(h - 1, max(1, w - len(label) - 1), label,
+                              attr_footer)
+            except curses.error:
+                pass
 
         start_y = 3
         for i, opt in enumerate(options):
@@ -635,6 +645,7 @@ def main_curses(stdscr) -> None:
             "PomoCLI (curses)",
             options,
             footer="[Up/Down]: move  [CR]: select  [q]: quit",
+            corner=f"v{__version__}",
         )
 
         if choice in (-1, 3):
