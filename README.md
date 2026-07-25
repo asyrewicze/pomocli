@@ -38,6 +38,12 @@ Everything runs locally. Nothing phones home.
 - Configurable durations  
   Work and break lengths can be adjusted in-app and persist across runs.
 
+- Complete early  
+  Finish a running Pomodoro before the timer expires by pressing Enter. The session is logged as COMPLETE EARLY.
+
+- Configurable file location  
+  The directory PomoCLI writes to can be set in-app or via the `POMOCLI_DIR` environment variable, and the log directory can be pointed anywhere you like.
+
 - Completion alert  
   Timer completion triggers a terminal bell and a full-screen flash, repeated five times.
 
@@ -97,6 +103,50 @@ You will be presented with a main menu that allows you to:
 
 ---
 
+## How It Works
+
+At launch, PomoCLI resolves its file locations, loads (or creates) its config, and drops you into a keyboard-driven main menu loop. From there, each menu option is a self-contained flow that returns to the menu when it finishes. Every session transition is appended to the log.
+
+```mermaid
+flowchart TD
+    A([Launch: python3 pomocli.py]) --> B["load_config()<br/>resolve base dir + log file<br/>POMOCLI_DIR or ~/.pomocli"]
+    B --> M{{Main Menu}}
+
+    M -->|Start Pomodoro| S1["Prompt: what task?"]
+    M -->|View previous| V1["read_log_lines()"]
+    M -->|Settings| G1[["adjust_settings()"]]
+    M -->|Quit / q| Z([Exit])
+
+    %% Start Pomodoro flow
+    S1 --> S2["log START"]
+    S2 --> S3["run_timer: WORK<br/>progress bar + task on screen"]
+    S3 -->|press q| S4["log ABORT"] --> M
+    S3 -->|press Enter| S5["log COMPLETE EARLY"] --> M
+    S3 -->|timer reaches 0| S6["log END<br/>beep + flash x5"]
+    S6 --> S7{Start break?}
+    S7 -->|Yes| S8["run_timer: BREAK"] --> M
+    S7 -->|Skip / q| M
+
+    %% View previous
+    V1 --> V2["Scrollable log viewer"] --> M
+
+    %% Settings
+    G1 --> G2{Choose setting}
+    G2 -->|Work / Break minutes| G3["Update + clamp value"] --> G1
+    G2 -->|Log directory| G4["Set path + create dir"] --> G1
+    G2 -->|Save and return| G5["save_config()<br/>write config.json"] --> M
+    G2 -->|q back| M
+```
+
+**Files touched at runtime**
+
+- `<base>/config.json` — read on load, written on Save. Base dir is `POMOCLI_DIR` if set, otherwise `~/.pomocli`.
+- `<log_dir>/pomocli_log.txt` — appended on every session transition. `<log_dir>` defaults to the base dir and is configurable in Settings.
+
+Both parent directories are created automatically before any write, so the first run never fails on a missing folder.
+
+---
+
 ## Key Bindings
 
 Menus:
@@ -105,7 +155,8 @@ Menus:
 - q to go back or quit
 
 Timer screen:
-- q to abort the active timer
+- q to abort the active timer (logged as ABORT)
+- Enter to complete the Pomodoro early (logged as COMPLETE EARLY)
 
 Log viewer:
 - Up and Down arrows to scroll
@@ -117,41 +168,56 @@ Log viewer:
 
 ## Configuration
 
-Configuration is stored locally in the following file:
+By default, PomoCLI keeps everything in a dedicated directory:
 
 ```bash
-~/.pomocli_config.json
+~/.pomocli/
+├── config.json        # settings
+└── pomocli_log.txt    # session log
 ```
 
-Example contents:
+The directory is created automatically on first run. Configuration is stored in `config.json`:
 
 ```bash
     {
       "work_minutes": 25,
-      "break_minutes": 5
+      "break_minutes": 5,
+      "log_dir": "/Users/you/.pomocli"
     }
 ```
 
 You may edit this file manually, but the recommended approach is to use the Settings option inside the application.
 
+### Choosing where files live
+
+There are two ways to change PomoCLI's location:
+
+- **`POMOCLI_DIR` environment variable** — sets the base directory for both the config file and the default log location. Useful for keeping PomoCLI's data with your dotfiles or on another volume:
+
+  ```bash
+  POMOCLI_DIR=~/dotfiles/pomocli python3 pomocli.py
+  ```
+
+- **Settings → Log directory** — sets where the log file is written (independent of the config location). The path is created if it does not exist and is remembered across runs. `~` is expanded, so entries like `~/Documents/pomodoros` work.
+
+The config file always lives at `<base>/config.json` so PomoCLI can find its settings before reading them.
+
 ---
 
 ## Logs
 
-Pomodoro sessions are logged to a plain-text file:
-
-```bash
-    ~/pomocli_log.txt
-```
+Pomodoro sessions are logged to a plain-text file, `pomocli_log.txt`, inside the configured log directory (by default `~/.pomocli/pomocli_log.txt`).
 
 Each entry includes a timestamp, session state, and task description. Example:
 
 ```bash
     2026-01-18 T=14:05 - START: Fix README formatting
-    2026-01-18 T=14:30 - END: Fix README formatting
+    2026-01-18 T=14:22 - COMPLETE EARLY: Fix README formatting
+    2026-01-18 T=14:25 - START: Reply to email
+    2026-01-18 T=14:50 - END: Reply to email
 ```
 
-The log format is intentionally simple so it can be grepped, parsed, or archived without tooling.
+Session states are `START`, `END`, `ABORT`, and `COMPLETE EARLY`. The log format is intentionally simple so it can be grepped, parsed, or archived without tooling.
 
 ---
 
