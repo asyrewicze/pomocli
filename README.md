@@ -143,8 +143,8 @@ flowchart TD
 
 **Files touched at runtime**
 
-- `<base>/config.json` — read on load, written on Save. Base dir is `POMOCLI_DIR` if set, otherwise `~/.pomocli`.
-- `<log_dir>/pomocli_log.txt` — appended on every session transition. `<log_dir>` defaults to the base dir and is configurable in Settings.
+- `<base>/config.json` - read on load, written on Save. Base dir is `POMOCLI_DIR` if set, otherwise `~/.pomocli`.
+- `<log_dir>/pomocli_log.txt` - appended on every session transition. `<log_dir>` defaults to the base dir and is configurable in Settings.
 
 Both parent directories are created automatically before any write, so the first run never fails on a missing folder.
 
@@ -196,14 +196,14 @@ You may edit this file manually, but the recommended approach is to use the Sett
 
 The timer's progress bar and art come in two styles, selectable via **Settings → Graphics** and persisted as `use_unicode` in the config:
 
-- **ASCII** (default) — a `[####----]` progress bar and simple ASCII art. Works on every terminal, everywhere.
-- **Unicode** — a smoother bar and shaded art using block glyphs (`█ ░ ▒ ▓`). Nicer, but not universally supported (see below).
+- **ASCII** (default) - a `[####----]` progress bar and simple ASCII art. Works on every terminal, everywhere.
+- **Unicode** - a smoother bar and shaded art using block glyphs (`█ ░ ▒ ▓`). Nicer, but not universally supported (see below).
 
 #### Why ASCII is the default
 
-You might expect a modern terminal with a good font (Nerd Fonts, etc.) to show the Unicode blocks fine — and for most output, it would. But PomoCLI is a **curses** app, and curses draws through the `ncurses` library, not directly to the terminal. On **macOS**, the system ships an ancient, *narrow* (non-wide) ncurses (`/usr/lib/libncurses.5.4.dylib`), and the stock Homebrew/python.org Python links against it. Narrow ncurses replaces any multibyte character with `?` **before it ever reaches the terminal** — so no font, locale, or terminal emulator can rescue it.
+You might expect a modern terminal with a good font (Nerd Fonts, etc.) to show the Unicode blocks fine - and for most output, it would. But PomoCLI is a **curses** app, and curses draws through the `ncurses` library, not directly to the terminal. On **macOS**, the system ships an ancient, *narrow* (non-wide) ncurses (`/usr/lib/libncurses.5.4.dylib`), and the stock Homebrew/python.org Python links against it. Narrow ncurses replaces any multibyte character with `?` **before it ever reaches the terminal** - so no font, locale, or terminal emulator can rescue it.
 
-In other words, on a default macOS Python setup the Unicode mode shows `?` no matter what. Since PomoCLI is meant to run on anyone's machine, ASCII is the safe, portable default. If you *see* `?` in Unicode mode, that's this issue — switch back to ASCII.
+In other words, on a default macOS Python setup the Unicode mode shows `?` no matter what. Since PomoCLI is meant to run on anyone's machine, ASCII is the safe, portable default. If you *see* `?` in Unicode mode, that's this issue - switch back to ASCII.
 
 #### Getting Unicode mode to work
 
@@ -222,19 +222,19 @@ The fix is a Python whose curses is linked against **wide** ncurses (`ncursesw`)
 
 - **Most Linux distros:** already link `ncursesw`, so Unicode mode generally works out of the box once your terminal font has the glyphs.
 
-This only affects *your* machine — anyone running PomoCLI on a stock macOS Python will still need ASCII, which is why it stays the default.
+This only affects *your* machine - anyone running PomoCLI on a stock macOS Python will still need ASCII, which is why it stays the default.
 
 ### Choosing where files live
 
 There are two ways to change PomoCLI's location:
 
-- **`POMOCLI_DIR` environment variable** — sets the base directory for both the config file and the default log location. Useful for keeping PomoCLI's data with your dotfiles or on another volume:
+- **`POMOCLI_DIR` environment variable** - sets the base directory for both the config file and the default log location. Useful for keeping PomoCLI's data with your dotfiles or on another volume:
 
   ```bash
   POMOCLI_DIR=~/dotfiles/pomocli python3 pomocli.py
   ```
 
-- **Settings → Log directory** — sets where the log file is written (independent of the config location). The path is created if it does not exist and is remembered across runs. `~` is expanded, so entries like `~/Documents/pomodoros` work.
+- **Settings → Log directory** - sets where the log file is written (independent of the config location). The path is created if it does not exist and is remembered across runs. `~` is expanded, so entries like `~/Documents/pomodoros` work.
 
 The config file always lives at `<base>/config.json` so PomoCLI can find its settings before reading them.
 
