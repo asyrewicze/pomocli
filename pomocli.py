@@ -13,6 +13,7 @@ Changes in this version:
 
 import curses
 import json
+import locale
 import os
 import time
 from datetime import datetime
@@ -621,6 +622,9 @@ def main_curses(stdscr) -> None:
 
 
 def main() -> None:
+    # Use the terminal's preferred encoding so curses can draw the Unicode
+    # progress bar and art instead of falling back to ASCII "?" glyphs.
+    locale.setlocale(locale.LC_ALL, "")
     curses.wrapper(main_curses)
 
 
