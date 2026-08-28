@@ -8,6 +8,7 @@ A curses-based Pomodoro CLI with:
 - Settings (work/break durations, log directory, ASCII/Unicode graphics)
 
 Files live under ~/.pomocli by default (override with POMOCLI_DIR).
+Set POMOCLI_KEEP_TERM=1 to skip the `rep` workaround (see neutralize_rep).
 """
 
 import argparse
@@ -15,6 +16,8 @@ import curses
 import json
 import locale
 import os
+import subprocess
+import sys
 import time
 from datetime import datetime
 from typing import List, Optional
@@ -36,6 +39,98 @@ DEFAULT_BREAK_MIN = 5
 # base directory. LOG_FILE is resolved from config at load time.
 DEFAULT_LOG_DIR = BASE_DIR
 LOG_FILE = os.path.join(BASE_DIR, "pomocli_log.txt")
+
+
+# -----------------------------
+# Terminal workarounds (pre-curses)
+# -----------------------------
+# macOS links Python's curses against Apple's byte-oriented ncurses. When a
+# terminal's terminfo advertises the `rep` capability, ncurses compresses a run
+# of identical characters into one character plus ESC[Nb - but it does so a
+# *byte* at a time, so a run of "\u2588" (e2 96 88) leaves the process as the
+# trailing 0x88 plus a repeat count, and the terminal draws the debris as "?".
+# Only runs corrupt, which is why the progress bar and the tomato art break
+# while lone glyphs elsewhere survive. kitty's terminfo advertises `rep`;
+# xterm-256color's does not, so pointing TERM at a rep-less entry is the entire
+# fix - and it has to happen before initscr() reads TERM.
+
+# Tried in order when the active terminal advertises `rep`. Each is checked for
+# `rep` before being accepted, so this is a preference order, not a promise.
+FALLBACK_TERMS = ("xterm-256color", "xterm", "vt100")
+
+# Asks one question about one terminal, then exits. See advertises_rep for why
+# this cannot be answered in-process.
+_REP_PROBE = (
+    "import curses, sys\n"
+    "curses.setupterm()\n"
+    "sys.stdout.write('1' if curses.tigetstr('rep') else '0')\n"
+)
+
+# A Python startup plus a terminfo lookup. Generous, but bounded: PomoCLI must
+# not hang on a wedged subprocess before it draws anything.
+PROBE_TIMEOUT_SECONDS = 5.0
+
+
+def advertises_rep(term: Optional[str] = None,
+                   env: Optional[dict] = None) -> Optional[bool]:
+    """Whether a terminfo entry carries `rep`. None when it cannot be read.
+
+    Runs in a subprocess because ncurses' setupterm is sticky: once cur_term is
+    initialized, later setupterm calls naming a *different* terminal quietly
+    return the first terminal's capabilities instead of loading the new entry.
+    Probing candidates in-process would therefore report the starting terminal's
+    answer for every one of them, and the probe itself would pin cur_term, so a
+    TERM swapped afterwards would never take effect. A fresh interpreter gets a
+    clean cur_term.
+    """
+    # The caller's env is an override layer, not a replacement: the child still
+    # needs HOME to find ~/.terminfo, which is where kitty installs its entry.
+    overrides = {} if env is None else dict(env)
+    child_env = {**os.environ, **overrides}
+    if term is not None:
+        child_env["TERM"] = term
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-c", _REP_PROBE],
+            capture_output=True,
+            text=True,
+            timeout=PROBE_TIMEOUT_SECONDS,
+            env=child_env,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    # An unknown terminal makes the child exit non-zero having printed nothing,
+    # which surfaces here as None rather than False: "no such entry" must never
+    # be mistaken for "this terminal is safe".
+    return {"1": True, "0": False}.get(proc.stdout.strip())
+
+
+def neutralize_rep(env: Optional[dict] = None) -> Optional[str]:
+    """Point TERM at a rep-less entry when the current one would shatter runs.
+
+    Returns the TERM adopted, or None when nothing needed changing. Set
+    POMOCLI_KEEP_TERM=1 to opt out and keep the terminal's own entry.
+
+    Applied whenever `rep` is advertised rather than only on builds known to be
+    byte-oriented: the usual wide-character probes lie here
+    (hasattr(curses, "unget_wch") is True on the very build that corrupts the
+    output), and a slightly reduced TERM costs far less than a garbled timer.
+    """
+    env = os.environ if env is None else env
+    if env.get("POMOCLI_KEEP_TERM"):
+        return None
+    if advertises_rep(env=env) is not True:
+        return None
+
+    current = env.get("TERM")
+    for candidate in FALLBACK_TERMS:
+        if candidate == current:
+            continue
+        if advertises_rep(candidate, env=env) is False:
+            env["TERM"] = candidate
+            return candidate
+    return None
 
 
 def ensure_parent_dir(path: str) -> None:
@@ -663,7 +758,24 @@ def main_curses(stdscr) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="pomocli",
-        description="A curses-based Pomodoro timer for the terminal.")
+        description="A curses-based Pomodoro timer for the terminal.",
+        epilog=(
+            "environment variables:\n"
+            "  POMOCLI_DIR         base directory for config.json and the "
+            "default log location\n"
+            "                      (default: ~/.pomocli)\n"
+            "  POMOCLI_KEEP_TERM   keep the terminal's own TERM entry. PomoCLI "
+            "otherwise swaps\n"
+            "                      TERM for a `rep`-less one, because terminfo "
+            "entries that\n"
+            "                      advertise `rep` corrupt runs of Unicode "
+            "block glyphs on\n"
+            "                      macOS. Set this if the swap causes trouble; "
+            "expect the\n"
+            "                      Unicode graphics mode to render as \"?\" "
+            "when you do.\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument(
         "--version", action="version",
         version=f"%(prog)s {__version__}")
@@ -672,6 +784,10 @@ def main() -> None:
     # Use the terminal's preferred encoding so curses can draw the Unicode
     # progress bar and art instead of falling back to ASCII "?" glyphs.
     locale.setlocale(locale.LC_ALL, "")
+    # Necessary but not sufficient: on macOS a terminfo entry advertising `rep`
+    # still shatters runs of block glyphs. Must run before curses.wrapper,
+    # because initscr() reads TERM at that moment.
+    neutralize_rep()
     curses.wrapper(main_curses)
 
 

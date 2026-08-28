@@ -45,7 +45,7 @@ Everything runs locally. Nothing phones home.
   The directory PomoCLI writes to can be set in-app or via the `POMOCLI_DIR` environment variable, and the log directory can be pointed anywhere you like.
 
 - Graphics mode (ASCII or Unicode)  
-  Defaults to a portable ASCII progress bar and art that works on any terminal. If your font supports block glyphs, switch to the Unicode look in Settings.
+  Defaults to a portable ASCII progress bar and art that works on any terminal. If your font supports block glyphs, switch to the Unicode look in Settings - including on macOS, which PomoCLI handles automatically.
 
 - Completion alert  
   Timer completion triggers a terminal bell and a full-screen flash, repeated five times.
@@ -197,23 +197,44 @@ You may edit this file manually, but the recommended approach is to use the Sett
 The timer's progress bar and art come in two styles, selectable via **Settings → Graphics** and persisted as `use_unicode` in the config:
 
 - **ASCII** (default) - a `[####----]` progress bar and simple ASCII art. Works on every terminal, everywhere.
-- **Unicode** - a smoother bar and shaded art using block glyphs (`█ ░ ▒ ▓`). Nicer, but not universally supported (see below).
+- **Unicode** - a smoother bar and shaded art using block glyphs (`█ ░ ▒ ▓`). Nicer, but needs a font that has the glyphs.
 
 #### Why ASCII is the default
 
-You might expect a modern terminal with a good font (Nerd Fonts, etc.) to show the Unicode blocks fine - and for most output, it would. But PomoCLI is a **curses** app, and curses draws through the `ncurses` library, not directly to the terminal. On **macOS**, the stock Homebrew / python.org Python links its `curses` module against Apple's old system ncurses (`/usr/lib/libncurses.5.4.dylib`), whose wide-character handling is limited enough that multibyte glyphs come out as `?` **before they ever reach the terminal** - so no font, locale, or terminal emulator can rescue it. A Python whose `curses` is built against a full modern **wide** ncurses (`ncursesw`) renders them correctly.
+ASCII is the default because it is the one setting guaranteed to work anywhere - every terminal, every font, every locale. It is a conservative default, not a warning that Unicode is broken.
 
-In practice, on a default macOS Python setup the Unicode mode shows `?` no matter what. Since PomoCLI is meant to run on anyone's machine, ASCII is the safe, portable default. If you *see* `?` in Unicode mode, that's this issue - switch back to ASCII.
+Unicode mode works on Linux and macOS. On Windows it remains unreliable (see below).
+
+#### The macOS `rep` problem, and how PomoCLI handles it
+
+Earlier versions of this README said Unicode mode was a dead end on macOS. That was wrong, and the real cause turned out to be narrow enough to fix outright.
+
+PomoCLI is a **curses** app, so it draws through `ncurses` rather than writing to the terminal directly. On macOS, Python's `curses` links against Apple's byte-oriented system ncurses (`/usr/lib/libncurses.5.4.dylib`). When a terminal's terminfo advertises the **`rep`** capability, ncurses compresses a run of identical characters into one character plus the `ESC[Nb` repeat sequence - but this build does it **one byte at a time**. A run of 30 `█` (`e2 96 88` repeated) leaves the process as the trailing byte `0x88` plus a repeat count, and the terminal draws the debris as `?`.
+
+Two things follow from that, and both match what people actually saw:
+
+- **Only runs corrupt.** A lone multibyte glyph is emitted intact. That is why the progress bar and the tomato art broke while everything else looked fine.
+- **It is a terminfo problem, not a font, locale, or emulator problem.** `xterm-kitty` advertises `rep`; `xterm-256color` does not. Same terminal, same Python, same font - the capability is the whole difference.
+
+So on startup PomoCLI checks whether the active `TERM` advertises `rep`, and if it does, swaps `TERM` for the first entry that does not (`xterm-256color`, then `xterm`, then `vt100`) before curses initializes. Unicode mode then renders correctly. You do not need to configure anything, install anything, or build a custom Python.
+
+To opt out and keep your terminal's own `TERM` entry, set `POMOCLI_KEEP_TERM=1`:
+
+```bash
+POMOCLI_KEEP_TERM=1 python3 pomocli.py
+```
+
+Expect Unicode graphics to show `?` when you do, on any terminal whose terminfo advertises `rep`.
 
 #### Getting Unicode mode to work
 
-Whatever the platform, two things must both be true: your terminal must use a **UTF-8 locale** (check with `locale`; look for `UTF-8`) and a **font that includes the block glyphs** (most monospace fonts do). Beyond that, the deciding factor is whether your Python's curses is linked against **wide** ncurses (`ncursesw`).
+Whatever the platform, two things must both be true: your terminal must use a **UTF-8 locale** (check with `locale`; look for `UTF-8`) and a **font that includes the block glyphs** (most monospace fonts do).
 
-- **Linux:** the easy case. Distro Python links `ncursesw`, so Unicode mode generally works out of the box in any UTF-8 terminal with a suitable font. If you still see `?`, confirm your locale is UTF-8 (`echo $LANG`) rather than `C`/`POSIX`.
+- **Linux:** the easy case. Distro Python links wide ncurses (`ncursesw`), which handles runs of multibyte characters correctly, so Unicode mode works out of the box in any UTF-8 terminal with a suitable font. If you still see `?`, confirm your locale is UTF-8 (`echo $LANG`) rather than `C`/`POSIX`.
 
-- **macOS: use ASCII mode.** Stock Homebrew / python.org Python link `curses` against Apple's system ncurses, so Unicode mode shows `?` no matter the terminal or font. It *is* possible to get Unicode working by running PomoCLI under a Python whose `curses` is built against a wide `ncursesw` (via a custom source build or a separate Python distribution), but every such route means installing or building extra software just for cosmetics - that's out of scope for this tool and this documentation. On macOS, stick with ASCII.
+- **macOS:** works, via the `TERM` swap described above. If you see `?`, check your locale first (`echo $LANG` should contain `UTF-8`), then confirm you have not set `POMOCLI_KEEP_TERM`.
 
-- **Windows:** curses is not part of the standard library on Windows, so PomoCLI needs the `windows-curses` package (`pip install windows-curses`), which is built on PDCurses and has inconsistent wide-character support. Expect ASCII to be the dependable choice here. For the full Unicode experience on Windows, run PomoCLI under **WSL** (Windows Subsystem for Linux) in Windows Terminal with a font like Cascadia Mono; inside WSL it behaves exactly like the Linux case above.
+- **Windows:** curses is not part of the standard library on Windows, so PomoCLI needs the `windows-curses` package (`pip install windows-curses`), which is built on PDCurses and has inconsistent wide-character support. This is a genuinely different problem from the macOS one and the `TERM` swap does not address it - expect ASCII to be the dependable choice here. For the full Unicode experience on Windows, run PomoCLI under **WSL** (Windows Subsystem for Linux) in Windows Terminal with a font like Cascadia Mono; inside WSL it behaves exactly like the Linux case above.
 
 ### Choosing where files live
 
@@ -228,6 +249,11 @@ There are two ways to change PomoCLI's location:
 - **Settings → Log directory** - sets where the log file is written (independent of the config location). The path is created if it does not exist and is remembered across runs. `~` is expanded, so entries like `~/Documents/pomodoros` work.
 
 The config file always lives at `<base>/config.json` so PomoCLI can find its settings before reading them.
+
+### Environment variables
+
+- **`POMOCLI_DIR`** - base directory for `config.json` and the default log location (default: `~/.pomocli`).
+- **`POMOCLI_KEEP_TERM`** - set to `1` to keep your terminal's own `TERM` entry instead of swapping it for a `rep`-less one. See [the macOS `rep` problem](#the-macos-rep-problem-and-how-pomocli-handles-it).
 
 ---
 
