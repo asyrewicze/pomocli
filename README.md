@@ -214,9 +214,15 @@ PomoCLI is a **curses** app, so it draws through `ncurses` rather than writing t
 Two things follow from that, and both match what people actually saw:
 
 - **Only runs corrupt.** A lone multibyte glyph is emitted intact. That is why the progress bar and the tomato art broke while everything else looked fine.
-- **It is a terminfo problem, not a font, locale, or emulator problem.** `xterm-kitty` advertises `rep`; `xterm-256color` does not. Same terminal, same Python, same font - the capability is the whole difference.
+- **It is a terminfo problem, not a font, locale, or emulator problem.** On macOS's terminfo database `xterm-kitty` advertises `rep` and `xterm-256color` does not. Same terminal, same Python, same font - the capability is the whole difference. (Which entries carry `rep` is a property of the database, not a constant: ncurses 6.5 as shipped on Debian 13 gives it to `xterm-256color` and `xterm` too.)
 
-So on startup PomoCLI checks whether the active `TERM` advertises `rep`, and if it does, swaps `TERM` for the first entry that does not (`xterm-256color`, then `xterm`, then `vt100`) before curses initializes. Unicode mode then renders correctly. You do not need to configure anything, install anything, or build a custom Python.
+So **on macOS**, at startup PomoCLI checks whether the active `TERM` advertises `rep`, and if it does, swaps `TERM` for the first entry that does not - `xterm-256color`, then `xterm` - before curses initializes. Unicode mode then renders correctly. You do not need to configure anything, install anything, or build a custom Python.
+
+Three rules keep the swap from doing harm:
+
+- **It only runs on macOS.** Every other platform links wide `ncursesw`, which emits runs of multibyte characters intact, so there is nothing to fix and no reason to touch `TERM`.
+- **A candidate must keep the capabilities PomoCLI uses**, `civis` (hide the cursor) among them. This is why `vt100` is not a candidate despite being rep-less: it cannot hide the cursor, and `curses.curs_set()` raises rather than shrugging.
+- **If no candidate qualifies, `TERM` is left alone.** A terminal that draws `?` still runs, and Settings offers ASCII mode; a downgraded one might not run at all.
 
 To opt out and keep your terminal's own `TERM` entry, set `POMOCLI_KEEP_TERM=1`:
 
@@ -224,7 +230,7 @@ To opt out and keep your terminal's own `TERM` entry, set `POMOCLI_KEEP_TERM=1`:
 POMOCLI_KEEP_TERM=1 python3 pomocli.py
 ```
 
-Expect Unicode graphics to show `?` when you do, on any terminal whose terminfo advertises `rep`.
+Expect Unicode graphics to show `?` when you do, on any macOS terminal whose terminfo advertises `rep`. Off macOS the variable has no effect, because no swap happens there in the first place.
 
 #### Getting Unicode mode to work
 
@@ -253,7 +259,7 @@ The config file always lives at `<base>/config.json` so PomoCLI can find its set
 ### Environment variables
 
 - **`POMOCLI_DIR`** - base directory for `config.json` and the default log location (default: `~/.pomocli`).
-- **`POMOCLI_KEEP_TERM`** - set to `1` to keep your terminal's own `TERM` entry instead of swapping it for a `rep`-less one. See [the macOS `rep` problem](#the-macos-rep-problem-and-how-pomocli-handles-it).
+- **`POMOCLI_KEEP_TERM`** - macOS only: set to `1` to keep your terminal's own `TERM` entry instead of swapping it for a `rep`-less one. See [the macOS `rep` problem](#the-macos-rep-problem-and-how-pomocli-handles-it).
 
 ---
 

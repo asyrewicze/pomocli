@@ -8,7 +8,7 @@ A curses-based Pomodoro CLI with:
 - Settings (work/break durations, log directory, ASCII/Unicode graphics)
 
 Files live under ~/.pomocli by default (override with POMOCLI_DIR).
-Set POMOCLI_KEEP_TERM=1 to skip the `rep` workaround (see neutralize_rep).
+Set POMOCLI_KEEP_TERM=1 to skip the macOS `rep` workaround (see neutralize_rep).
 """
 
 import argparse
@@ -20,7 +20,7 @@ import subprocess
 import sys
 import time
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Sequence
 
 __version__ = "1.0.1"
 
@@ -50,20 +50,35 @@ LOG_FILE = os.path.join(BASE_DIR, "pomocli_log.txt")
 # *byte* at a time, so a run of "\u2588" (e2 96 88) leaves the process as the
 # trailing 0x88 plus a repeat count, and the terminal draws the debris as "?".
 # Only runs corrupt, which is why the progress bar and the tomato art break
-# while lone glyphs elsewhere survive. kitty's terminfo advertises `rep`;
-# xterm-256color's does not, so pointing TERM at a rep-less entry is the entire
-# fix - and it has to happen before initscr() reads TERM.
+# while lone glyphs elsewhere survive. On macOS kitty's terminfo advertises
+# `rep` and xterm-256color's does not, so pointing TERM at a rep-less entry is
+# the entire fix - and it has to happen before initscr() reads TERM.
+#
+# This is Apple's ncurses alone; see neutralize_rep for why the swap is confined
+# to macOS and what a replacement entry has to prove before it is adopted.
 
-# Tried in order when the active terminal advertises `rep`. Each is checked for
-# `rep` before being accepted, so this is a preference order, not a promise.
-FALLBACK_TERMS = ("xterm-256color", "xterm", "vt100")
+# Tried in order when the active terminal advertises `rep`. Each candidate is
+# re-probed before it is accepted, so this is a preference order, not a promise:
+# terminfo databases disagree about `rep` (ncurses 6.5 on Debian 13 gives it to
+# `xterm-256color` and `xterm` alike, while older databases do not), and a
+# candidate that fails the probe is skipped rather than adopted. `vt100` is
+# deliberately absent: it is rep-less, but it also lacks `civis`, so adopting it
+# would trade corrupt glyphs for a crash in curses.curs_set().
+FALLBACK_TERMS = ("xterm-256color", "xterm")
 
-# Asks one question about one terminal, then exits. See advertises_rep for why
+# What a replacement entry must still be able to do. Hiding the cursor is the
+# first thing PomoCLI asks of curses, and a terminal without `civis` answers by
+# raising, so a swap that drops it breaks the app before it draws a frame.
+REQUIRED_CAPS = ("civis",)
+
+# Asks about one terminal, then exits. Capability names arrive as arguments and
+# come back as a string of 1s and 0s in the same order. See probe_caps for why
 # this cannot be answered in-process.
-_REP_PROBE = (
+_CAP_PROBE = (
     "import curses, sys\n"
     "curses.setupterm()\n"
-    "sys.stdout.write('1' if curses.tigetstr('rep') else '0')\n"
+    "sys.stdout.write(''.join(\n"
+    "    '1' if curses.tigetstr(cap) else '0' for cap in sys.argv[1:]))\n"
 )
 
 # A Python startup plus a terminfo lookup. Generous, but bounded: PomoCLI must
@@ -71,9 +86,9 @@ _REP_PROBE = (
 PROBE_TIMEOUT_SECONDS = 5.0
 
 
-def advertises_rep(term: Optional[str] = None,
-                   env: Optional[dict] = None) -> Optional[bool]:
-    """Whether a terminfo entry carries `rep`. None when it cannot be read.
+def probe_caps(caps: Sequence[str], term: Optional[str] = None,
+               env: Optional[dict] = None) -> Optional[dict]:
+    """Which of `caps` a terminfo entry carries. None when it cannot be read.
 
     Runs in a subprocess because ncurses' setupterm is sticky: once cur_term is
     initialized, later setupterm calls naming a *different* terminal quietly
@@ -91,7 +106,7 @@ def advertises_rep(term: Optional[str] = None,
         child_env["TERM"] = term
     try:
         proc = subprocess.run(
-            [sys.executable, "-c", _REP_PROBE],
+            [sys.executable, "-c", _CAP_PROBE, *caps],
             capture_output=True,
             text=True,
             timeout=PROBE_TIMEOUT_SECONDS,
@@ -101,9 +116,12 @@ def advertises_rep(term: Optional[str] = None,
     except (OSError, subprocess.SubprocessError):
         return None
     # An unknown terminal makes the child exit non-zero having printed nothing,
-    # which surfaces here as None rather than False: "no such entry" must never
-    # be mistaken for "this terminal is safe".
-    return {"1": True, "0": False}.get(proc.stdout.strip())
+    # which surfaces here as None rather than a verdict: "no such entry" must
+    # never be mistaken for "this terminal is safe".
+    answer = proc.stdout.strip()
+    if len(answer) != len(caps) or set(answer) - {"0", "1"}:
+        return None
+    return {cap: flag == "1" for cap, flag in zip(caps, answer)}
 
 
 def neutralize_rep(env: Optional[dict] = None) -> Optional[str]:
@@ -112,22 +130,35 @@ def neutralize_rep(env: Optional[dict] = None) -> Optional[str]:
     Returns the TERM adopted, or None when nothing needed changing. Set
     POMOCLI_KEEP_TERM=1 to opt out and keep the terminal's own entry.
 
-    Applied whenever `rep` is advertised rather than only on builds known to be
-    byte-oriented: the usual wide-character probes lie here
+    On macOS this is applied whenever `rep` is advertised rather than only on
+    builds known to be byte-oriented: the usual wide-character probes lie there
     (hasattr(curses, "unget_wch") is True on the very build that corrupts the
     output), and a slightly reduced TERM costs far less than a garbled timer.
     """
     env = os.environ if env is None else env
     if env.get("POMOCLI_KEEP_TERM"):
         return None
-    if advertises_rep(env=env) is not True:
+    # Everywhere else Python's curses links wide ncurses, which emits runs of
+    # multibyte characters intact; only Apple's byte-oriented build shatters
+    # them. Off macOS the swap is all cost and no benefit, and the cost is real:
+    # on a terminfo database that gives `rep` to every xterm entry, the search
+    # walks past its usable candidates and downgrades a perfectly good terminal.
+    if sys.platform != "darwin":
+        return None
+    caps = probe_caps(("rep",), env=env)
+    if not caps or not caps["rep"]:
         return None
 
     current = env.get("TERM")
+    wanted = ("rep", *REQUIRED_CAPS)
     for candidate in FALLBACK_TERMS:
         if candidate == current:
             continue
-        if advertises_rep(candidate, env=env) is False:
+        caps = probe_caps(wanted, candidate, env=env)
+        # Unreadable entry, still shatters runs, or missing something PomoCLI
+        # needs: leave TERM alone. Unicode glyphs may corrupt, but the app runs,
+        # and Settings offers ASCII mode as the way out.
+        if caps and not caps["rep"] and all(caps[c] for c in REQUIRED_CAPS):
             env["TERM"] = candidate
             return candidate
     return None
@@ -215,8 +246,23 @@ def read_log_lines() -> List[str]:
 # -----------------------------
 # UI Helpers
 # -----------------------------
+def set_cursor(visible: int) -> None:
+    """Show or hide the cursor, tolerating terminals that cannot do either.
+
+    curs_set() returns ERR - which Python raises as curses.error - when terminfo
+    carries no `civis` (hide) or `cnorm` (show); `vt100` and `dumb` have neither.
+    Cursor visibility is cosmetic in PomoCLI, so a terminal that refuses is not a
+    reason to abort: hiding fails at startup, showing fails at the task prompt,
+    and both screens are perfectly usable with the cursor left where it is.
+    """
+    try:
+        curses.curs_set(visible)
+    except curses.error:
+        pass
+
+
 def init_curses(stdscr) -> None:
-    curses.curs_set(0)
+    set_cursor(0)
     stdscr.nodelay(False)
     stdscr.keypad(True)
     curses.noecho()
@@ -271,7 +317,7 @@ def prompt_input(stdscr, title: str, prompt: str, initial: str = "") -> Optional
     except curses.error:
         pass
 
-    curses.curs_set(1)
+    set_cursor(1)
     curses.echo()
 
     y = 6
@@ -289,12 +335,12 @@ def prompt_input(stdscr, title: str, prompt: str, initial: str = "") -> Optional
         ch = stdscr.getch()
         if ch == 27:  # ESC
             curses.noecho()
-            curses.curs_set(0)
+            set_cursor(0)
             return None
         if ch in (curses.KEY_ENTER, 10, 13):
             val = "".join(buf).strip()
             curses.noecho()
-            curses.curs_set(0)
+            set_cursor(0)
             return val if val else ""
         if ch in (curses.KEY_BACKSPACE, 127, 8):
             if buf:
@@ -764,16 +810,17 @@ def main() -> None:
             "  POMOCLI_DIR         base directory for config.json and the "
             "default log location\n"
             "                      (default: ~/.pomocli)\n"
-            "  POMOCLI_KEEP_TERM   keep the terminal's own TERM entry. PomoCLI "
-            "otherwise swaps\n"
-            "                      TERM for a `rep`-less one, because terminfo "
-            "entries that\n"
-            "                      advertise `rep` corrupt runs of Unicode "
-            "block glyphs on\n"
-            "                      macOS. Set this if the swap causes trouble; "
-            "expect the\n"
-            "                      Unicode graphics mode to render as \"?\" "
-            "when you do.\n"
+            "  POMOCLI_KEEP_TERM   macOS only: keep the terminal's own TERM "
+            "entry. PomoCLI\n"
+            "                      otherwise swaps TERM for a `rep`-less one "
+            "there, because\n"
+            "                      terminfo entries advertising `rep` corrupt "
+            "runs of Unicode\n"
+            "                      block glyphs under Apple's ncurses. Set this "
+            "if the swap\n"
+            "                      causes trouble; expect the Unicode graphics "
+            "mode to render\n"
+            "                      as \"?\" when you do.\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument(
@@ -786,7 +833,7 @@ def main() -> None:
     locale.setlocale(locale.LC_ALL, "")
     # Necessary but not sufficient: on macOS a terminfo entry advertising `rep`
     # still shatters runs of block glyphs. Must run before curses.wrapper,
-    # because initscr() reads TERM at that moment.
+    # because initscr() reads TERM at that moment. A no-op off macOS.
     neutralize_rep()
     curses.wrapper(main_curses)
 
