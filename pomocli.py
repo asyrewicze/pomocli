@@ -675,6 +675,21 @@ def view_log(stdscr) -> None:
 # -----------------------------
 # Settings
 # -----------------------------
+def clear_log_sequence(stdscr, cfg: dict) -> None:
+    log_dir = cfg.get("log_dir") or DEFAULT_LOG_DIR
+    current_log = os.path.join(os.path.expanduser(log_dir), "pomocli_log.txt")
+    message_box(stdscr, "Are you Sure?", ["Are you sure you want to clear the pomodoro log?"])
+    message_box(stdscr, "Are you REALLY Sure?", ["This will permanently delete all entries."])
+    message_box(stdscr, "Clear Log", ["Clearing log file..."])
+    try:
+        ensure_parent_dir(current_log)
+        with open(current_log, "w", encoding="utf-8") as f:
+            pass
+    except Exception:
+        pass
+    message_box(stdscr, "Confirmed Deletion", ["Log has been cleared successfully."])
+
+
 def adjust_settings(stdscr, cfg: dict) -> dict:
     while True:
         options = [
@@ -682,6 +697,7 @@ def adjust_settings(stdscr, cfg: dict) -> dict:
             f"Break duration (minutes): {cfg['break_minutes']}",
             f"Log directory: {cfg.get('log_dir', DEFAULT_LOG_DIR)}",
             f"Graphics: {'Unicode' if cfg.get('use_unicode', False) else 'ASCII'}",
+            "Clear Pomodoro Log",
             "Save and return",
         ]
         choice = menu(stdscr, "Settings", options,
@@ -728,6 +744,8 @@ def adjust_settings(stdscr, cfg: dict) -> dict:
         elif choice == 3:
             cfg["use_unicode"] = not cfg.get("use_unicode", False)
         elif choice == 4:
+            clear_log_sequence(stdscr, cfg)
+        elif choice == 5:
             save_config(cfg)
             message_box(stdscr, "Settings", [
                         "Saved."], footer="Press any key...")
