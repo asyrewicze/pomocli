@@ -22,7 +22,7 @@ import time
 from datetime import datetime
 from typing import List, Optional, Sequence
 
-__version__ = "1.0.1"
+__version__ = "1.0.2"
 
 # Files
 # Base directory for PomoCLI's data. Override with the POMOCLI_DIR environment
