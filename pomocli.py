@@ -2,9 +2,9 @@
 """
 pomocli.py
 A curses-based Pomodoro CLI with:
-- Start Pomodoro (task prompt -> work timer -> break timer)
+- Start Pomodoro (pick a recent task or enter a new one -> work timer -> break timer)
 - Complete a Pomodoro early with Enter (logged as COMPLETE EARLY)
-- View previous pomodoros (from a text log file)
+- View previous pomodoros (from a text log file), and edit their task text
 - Settings (work/break durations, log directory, ASCII/Unicode graphics)
 
 Files live under ~/.pomocli by default (override with POMOCLI_DIR).
@@ -16,13 +16,14 @@ import curses
 import json
 import locale
 import os
+import re
 import subprocess
 import sys
 import time
 from datetime import datetime
 from typing import List, Optional, Sequence
 
-__version__ = "1.0.2"
+__version__ = "1.1.0"
 
 # Files
 # Base directory for PomoCLI's data. Override with the POMOCLI_DIR environment
@@ -226,11 +227,33 @@ def save_config(cfg: dict) -> None:
 # -----------------------------
 # Logging
 # -----------------------------
+# The states log_session can write, and the timestamp format they carry. Both
+# are needed to read a line back apart again, so they live next to each other.
+LOG_TS_FORMAT = "%Y-%m-%d T=%H:%M"
+LOG_STATES = ("START", "END", "ABORT", "COMPLETE EARLY")
+
+# A task description may itself contain ": ", so the state is matched against
+# the known set rather than by splitting on the first separator found.
+LOG_LINE_RE = re.compile(
+    r"^(?P<ts>\d{4}-\d{2}-\d{2} T=\d{2}:\d{2}) - "
+    r"(?P<state>" + "|".join(LOG_STATES) + r"): "
+    r"(?P<task>.*)$"
+)
+
+# States that mean real time was spent, as opposed to a pomodoro that was
+# only ever started and then abandoned.
+WORKED_STATES = ("END", "COMPLETE EARLY")
+
+
+def format_log_line(ts: str, state: str, task_description: str) -> str:
+    return f"{ts} - {state}: {task_description}"
+
+
 def log_session(task_description: str, state: str) -> None:
-    timestamp = datetime.now().strftime("%Y-%m-%d T=%H:%M")
+    timestamp = datetime.now().strftime(LOG_TS_FORMAT)
     ensure_parent_dir(LOG_FILE)
     with open(LOG_FILE, "a", encoding="utf-8") as f:
-        f.write(f"{timestamp} - {state}: {task_description}\n")
+        f.write(format_log_line(timestamp, state, task_description) + "\n")
 
 
 def read_log_lines() -> List[str]:
@@ -241,6 +264,126 @@ def read_log_lines() -> List[str]:
         return []
     except Exception:
         return ["[Error reading log file]"]
+
+
+def write_log_lines(lines: List[str]) -> bool:
+    """Replace the log file with `lines`. Returns False if the write failed.
+
+    The content goes to a temp file alongside the log and is then moved into
+    place, so an interrupted rewrite cannot leave the log truncated.
+    """
+    ensure_parent_dir(LOG_FILE)
+    tmp_path = LOG_FILE + ".tmp"
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            for line in lines:
+                f.write(line + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, LOG_FILE)
+        return True
+    except Exception:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+        return False
+
+
+def parse_log_line(line: str) -> Optional[dict]:
+    """Split a log line into {"ts", "state", "task"}, or None if it is not one.
+
+    Anything hand-edited into the log, and the read-error placeholder, fails
+    to match and is left alone rather than guessed at.
+    """
+    match = LOG_LINE_RE.match(line)
+    if not match:
+        return None
+    return {"ts": match.group("ts"),
+            "state": match.group("state"),
+            "task": match.group("task")}
+
+
+def group_sessions(lines: List[str]) -> List[dict]:
+    """Group log lines into pomodoro sessions.
+
+    One pomodoro writes several lines that share a description: START then
+    END, or START then ABORT, with COMPLETE EARLY adding a line of its own.
+    Only one pomodoro runs at a time, so a session is a contiguous run of
+    lines - START opens a new one, a description that does not match the open
+    session opens a new one, and an unparseable line closes whatever is open.
+
+    Each session is {"indices", "task", "start_ts", "last_ts", "states"},
+    where indices are positions in `lines`.
+    """
+    sessions: List[dict] = []
+    current: Optional[dict] = None
+    for i, line in enumerate(lines):
+        parsed = parse_log_line(line)
+        if parsed is None:
+            current = None
+            continue
+        if (current is None or parsed["state"] == "START"
+                or parsed["task"] != current["task"]):
+            current = {"indices": [i],
+                       "task": parsed["task"],
+                       "start_ts": parsed["ts"],
+                       "last_ts": parsed["ts"],
+                       "states": [parsed["state"]]}
+            sessions.append(current)
+        else:
+            current["indices"].append(i)
+            current["last_ts"] = parsed["ts"]
+            current["states"].append(parsed["state"])
+    return sessions
+
+
+def session_for_index(sessions: List[dict], index: int) -> Optional[dict]:
+    """The session that owns line `index`, or None if no session claims it."""
+    for session in sessions:
+        if index in session["indices"]:
+            return session
+    return None
+
+
+def recent_tasks(limit: int = 8) -> List[dict]:
+    """Distinct tasks with at least one completed pomodoro, most recent first.
+
+    Counting is per session, so a pomodoro that logged both COMPLETE EARLY
+    and END still counts once. Sessions that only ever reached START or ABORT
+    are left out - this feeds a menu for picking work back up, not a record of
+    what never happened.
+    """
+    tasks: dict = {}
+    for session in group_sessions(read_log_lines()):
+        if not any(state in WORKED_STATES for state in session["states"]):
+            continue
+        entry = tasks.get(session["task"])
+        if entry is None:
+            tasks[session["task"]] = {"task": session["task"],
+                                      "count": 1,
+                                      "last_ts": session["last_ts"]}
+        else:
+            entry["count"] += 1
+            entry["last_ts"] = max(entry["last_ts"], session["last_ts"])
+    # The timestamp format is fixed-width and zero-padded, so it sorts
+    # chronologically as a plain string.
+    ordered = sorted(tasks.values(), key=lambda e: e["last_ts"], reverse=True)
+    return ordered[: max(0, limit)]
+
+
+def humanize_ts(ts: str, now: Optional[datetime] = None) -> str:
+    """Render a log timestamp relative to today: time, "yesterday", or date."""
+    try:
+        when = datetime.strptime(ts, LOG_TS_FORMAT)
+    except ValueError:
+        return ts
+    days = ((now or datetime.now()).date() - when.date()).days
+    if days == 0:
+        return when.strftime("%H:%M")
+    if days == 1:
+        return "yesterday"
+    return when.strftime("%Y-%m-%d")
 
 
 # -----------------------------
@@ -613,9 +756,57 @@ def run_timer(stdscr, seconds: int, label: str, task: str,
 # -----------------------------
 # Log Viewer
 # -----------------------------
+def edit_session_task(stdscr, lines: List[str], session: dict) -> Optional[List[str]]:
+    """Prompt for a new description and apply it to every line of `session`.
+
+    Returns log lines the viewer should adopt, or None to keep what it has:
+    None when the user cancelled, left the text unchanged, or the rewrite
+    failed. Timestamps and states are left alone - this renames the work, it
+    does not rewrite the history of it.
+    """
+    new_task = prompt_input(stdscr, "Edit Task",
+                            "Task description:", session["task"])
+    if new_task is None:
+        return None
+    new_task = new_task.strip()
+    if not new_task or new_task == session["task"]:
+        return None
+
+    # Re-read right before writing. Another pomocli instance may have finished
+    # a pomodoro and appended to the log while this viewer sat open, and
+    # rewriting from our own stale copy would silently drop those lines.
+    fresh = read_log_lines()
+    if (len(fresh) < len(lines)
+            or any(fresh[i] != lines[i] for i in session["indices"])):
+        message_box(stdscr, "Edit Task",
+                    ["The log changed on disk since this view opened.",
+                     "Nothing was written, and the list has been reloaded.",
+                     "Select the entry again to retry the edit."],
+                    footer="Press any key...")
+        return fresh
+
+    updated = list(fresh)
+    for i in session["indices"]:
+        parsed = parse_log_line(updated[i])
+        if parsed is None:      # defensive: sessions only hold parsed lines
+            continue
+        updated[i] = format_log_line(parsed["ts"], parsed["state"], new_task)
+
+    if not write_log_lines(updated):
+        message_box(stdscr, "Edit Task",
+                    ["Could not write to the log file.",
+                     f"Path: {LOG_FILE}",
+                     "The entry was left unchanged."],
+                    footer="Press any key...")
+        return None
+    return updated
+
+
 def view_log(stdscr) -> None:
-    lines = list(reversed(read_log_lines()))
-    pos = 0
+    lines = read_log_lines()
+    sessions = group_sessions(lines)
+    sel = 0     # cursor position in display order (newest first)
+    pos = 0     # first display row visible in the viewport
 
     while True:
         draw_frame(stdscr, "Previous Pomodoros")
@@ -626,9 +817,20 @@ def view_log(stdscr) -> None:
                         "No log entries found yet."], footer="Press any key...")
             return
 
+        # The log reads newest-first on screen but is stored oldest-first, so
+        # display row `i` is file line `len(lines) - 1 - i`.
+        display = list(reversed(lines))
+        sel = max(0, min(sel, len(display) - 1))
+
         view_h = max(1, h - 6)
-        end = min(len(lines), pos + view_h)
-        window = lines[pos:end]
+        if sel < pos:
+            pos = sel
+        elif sel >= pos + view_h:
+            pos = sel - view_h + 1
+        pos = max(0, min(pos, max(0, len(display) - view_h)))
+
+        end = min(len(display), pos + view_h)
+        window = display[pos:end]
 
         try:
             stdscr.addstr(2, 2, f"Log file: {LOG_FILE}"[: w - 4],
@@ -637,16 +839,21 @@ def view_log(stdscr) -> None:
             pass
 
         y = 4
-        for line in window:
+        for offset, line in enumerate(window):
             if y >= h - 2:
                 break
+            if pos + offset == sel:
+                attr = curses.color_pair(
+                    2) | curses.A_BOLD if curses.has_colors() else curses.A_REVERSE
+            else:
+                attr = 0
             try:
-                stdscr.addstr(y, 2, line[: w - 4])
+                stdscr.addstr(y, 2, line[: w - 4], attr)
             except curses.error:
                 pass
             y += 1
 
-        footer = "[Up/Down]: scroll  PgUp/PgDn: page  Home/End  [q]: back"
+        footer = "[Up/Down]: select  PgUp/PgDn: page  [e]: edit task  [q]: back"
         try:
             stdscr.addstr(
                 h - 2, 2, footer[: w - 4], curses.color_pair(3) if curses.has_colors() else 0)
@@ -658,18 +865,30 @@ def view_log(stdscr) -> None:
 
         if ch in (ord("q"), ord("Q")):
             return
+        elif ch in (ord("e"), ord("E")):
+            session = session_for_index(sessions, len(lines) - 1 - sel)
+            if session is None:
+                message_box(stdscr, "Edit Task",
+                            ["This line is not a recognized log entry,",
+                             "so its task description cannot be edited."],
+                            footer="Press any key...")
+                continue
+            updated = edit_session_task(stdscr, lines, session)
+            if updated is not None:
+                lines = updated
+                sessions = group_sessions(lines)
         elif ch == curses.KEY_UP:
-            pos = max(0, pos - 1)
+            sel = max(0, sel - 1)
         elif ch == curses.KEY_DOWN:
-            pos = min(max(0, len(lines) - 1), pos + 1)
+            sel = min(len(display) - 1, sel + 1)
         elif ch == curses.KEY_PPAGE:
-            pos = max(0, pos - view_h)
+            sel = max(0, sel - view_h)
         elif ch == curses.KEY_NPAGE:
-            pos = min(max(0, len(lines) - view_h), pos + view_h)
+            sel = min(len(display) - 1, sel + view_h)
         elif ch == curses.KEY_HOME:
-            pos = 0
+            sel = 0
         elif ch == curses.KEY_END:
-            pos = max(0, len(lines) - view_h)
+            sel = len(display) - 1
 
 
 # -----------------------------
@@ -737,9 +956,56 @@ def adjust_settings(stdscr, cfg: dict) -> dict:
 # -----------------------------
 # Main flow
 # -----------------------------
+def recent_task_label(entry: dict, width: int) -> str:
+    """One menu row: description on the left, activity summary on the right.
+
+    Truncation here is display-only; the description that gets logged is
+    always the full string read back out of the log.
+    """
+    plural = "" if entry["count"] == 1 else "s"
+    meta = (f"({entry['count']} pomodoro{plural}, "
+            f"last {humanize_ts(entry['last_ts'])})")
+    room = max(8, width - len(meta) - 2)
+    task = entry["task"]
+    if len(task) > room:
+        task = task[: max(1, room - 3)] + "..."
+    return f"{task.ljust(room)}  {meta}"
+
+
+def choose_task(stdscr) -> Optional[str]:
+    """Pick the task for this pomodoro, or None if the user backed out.
+
+    Most pomodoros continue work that is already underway, so recently
+    worked-on tasks are offered first; picking one reuses its exact
+    description, which keeps follow-up sessions grouped together in the log
+    instead of scattered across near-identical retyped strings. "New Task"
+    falls through to the free-text prompt.
+    """
+    h, w = stdscr.getmaxyx()
+    # menu() stops drawing at h - 3 and starts at row 3; reserve one of those
+    # rows for "New Task" so nothing lands off-screen on a short terminal.
+    entries = recent_tasks(limit=max(0, min(8, h - 7)))
+    if not entries:
+        return prompt_input(stdscr, "Start Pomodoro",
+                            "What task are you working on?")
+
+    # menu() renders options as "  {opt}" at x=2 and clips to w - 4.
+    label_width = max(20, w - 6)
+    options = ["New Task"] + [recent_task_label(e, label_width)
+                              for e in entries]
+    choice = menu(stdscr, "Start Pomodoro", options,
+                  footer="[Up/Down]: move  [CR]: select  [q]: back")
+
+    if choice == -1:
+        return None
+    if choice == 0:
+        return prompt_input(stdscr, "Start Pomodoro",
+                            "What task are you working on?")
+    return entries[choice - 1]["task"]
+
+
 def start_pomodoro_flow(stdscr, cfg: dict) -> None:
-    task = prompt_input(stdscr, "Start Pomodoro",
-                        "What task are you working on?")
+    task = choose_task(stdscr)
     if task is None:
         return
     if task.strip() == "":
