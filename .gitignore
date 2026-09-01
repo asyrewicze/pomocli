@@ -71,3 +71,8 @@ htmlcov/
 .mypy_cache/
 .ruff_cache/
 .pyright/
+
+# =========================
+# Local agent instructions
+# =========================
+CLAUDE.md
