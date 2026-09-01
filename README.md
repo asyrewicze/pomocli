@@ -36,7 +36,7 @@ Everything runs locally. Nothing phones home.
   Whatever you enter for What are you working on stays visible during the active timer.
 
 - Pick up where you left off  
-  Starting a Pomodoro offers your recently worked-on tasks alongside New Task, with how many Pomodoros each has and when you last touched it. Selecting one reuses the exact description, so follow-up sessions group together in the log instead of scattering across near-identical retyped strings.
+  Starting a Pomodoro offers your recently worked-on tasks alongside New Task, with how many Pomodoros each has and when you last touched it. Selecting one reuses the exact description, so follow-up sessions group together in the log instead of scattering across near-identical retyped strings. Only tasks you actually finished a Pomodoro on are listed - a session you started and aborted does not clutter the menu - and the list is trimmed to fit short terminals.
 
 - Editable task history  
   Fix a typo, or rename a task you described badly at 9am, from inside the log viewer. All the log lines belonging to that Pomodoro are updated together; timestamps and session states are never touched.
@@ -156,7 +156,8 @@ flowchart TD
 **Files touched at runtime**
 
 - `<base>/config.json` - read on load, written on Save. Base dir is `POMOCLI_DIR` if set, otherwise `~/.pomocli`.
-- `<log_dir>/pomocli_log.txt` - appended on every session transition. `<log_dir>` defaults to the base dir and is configurable in Settings.
+- `<log_dir>/pomocli_log.txt` - appended on every session transition, and rewritten in full when a task description is edited in the log viewer. `<log_dir>` defaults to the base dir and is configurable in Settings.
+- `<log_dir>/pomocli_log.txt.tmp` - exists only for the moment an edit is being written, then replaces the log in one atomic move. You will not normally see it.
 
 Both parent directories are created automatically before any write, so the first run never fails on a missing folder.
 
@@ -165,7 +166,7 @@ Both parent directories are created automatically before any write, so the first
 ## Key Bindings
 
 Menus:
-- Up and Down arrows to navigate
+- Up and Down arrows to navigate, or j and k
 - Enter to select
 - q to go back or quit
 
