@@ -297,6 +297,8 @@ Session states are `START`, `END`, `ABORT`, and `COMPLETE EARLY`. The log format
 
 Task descriptions can be corrected in place from the log viewer (select an entry, press `e`). Editing rewrites every line belonging to that Pomodoro, so the two lines above would be renamed together. The rewrite goes through a temporary file and is moved into place, so an interrupted edit cannot truncate the log. Lines that do not match the format above - anything hand-edited in - are left alone and cannot be edited from the viewer.
 
+The log is re-read immediately before an edit is written, so a second PomoCLI instance that finished a Pomodoro while the viewer sat open does not lose its entries. If the lines being edited changed on disk in the meantime, the edit is refused and the viewer reloads rather than overwriting someone else's work.
+
 ---
 
 ## Philosophy

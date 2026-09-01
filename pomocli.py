@@ -759,9 +759,10 @@ def run_timer(stdscr, seconds: int, label: str, task: str,
 def edit_session_task(stdscr, lines: List[str], session: dict) -> Optional[List[str]]:
     """Prompt for a new description and apply it to every line of `session`.
 
-    Returns the updated log lines, or None if the user cancelled, left the
-    text unchanged, or the rewrite failed. Timestamps and states are left
-    alone - this renames the work, it does not rewrite the history of it.
+    Returns log lines the viewer should adopt, or None to keep what it has:
+    None when the user cancelled, left the text unchanged, or the rewrite
+    failed. Timestamps and states are left alone - this renames the work, it
+    does not rewrite the history of it.
     """
     new_task = prompt_input(stdscr, "Edit Task",
                             "Task description:", session["task"])
@@ -771,7 +772,20 @@ def edit_session_task(stdscr, lines: List[str], session: dict) -> Optional[List[
     if not new_task or new_task == session["task"]:
         return None
 
-    updated = list(lines)
+    # Re-read right before writing. Another pomocli instance may have finished
+    # a pomodoro and appended to the log while this viewer sat open, and
+    # rewriting from our own stale copy would silently drop those lines.
+    fresh = read_log_lines()
+    if (len(fresh) < len(lines)
+            or any(fresh[i] != lines[i] for i in session["indices"])):
+        message_box(stdscr, "Edit Task",
+                    ["The log changed on disk since this view opened.",
+                     "Nothing was written, and the list has been reloaded.",
+                     "Select the entry again to retry the edit."],
+                    footer="Press any key...")
+        return fresh
+
+    updated = list(fresh)
     for i in session["indices"]:
         parsed = parse_log_line(updated[i])
         if parsed is None:      # defensive: sessions only hold parsed lines
