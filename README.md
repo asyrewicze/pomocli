@@ -17,10 +17,10 @@ PomoCLI is a terminal UI written in Python using curses. It is designed for peop
 
 The application supports:
 
-- Starting a Pomodoro session with an explicit task
+- Starting a Pomodoro session with an explicit task, or picking up a recent one
 - Displaying that task while the timer runs
 - Loud, unmissable completion alerts
-- Viewing past sessions from a plain-text log
+- Viewing past sessions from a plain-text log, and correcting their task text
 - Editing work and break durations via an in-app settings menu
 
 Everything runs locally. Nothing phones home.
@@ -34,6 +34,12 @@ Everything runs locally. Nothing phones home.
 
 - Task visibility  
   Whatever you enter for What are you working on stays visible during the active timer.
+
+- Pick up where you left off  
+  Starting a Pomodoro offers your recently worked-on tasks alongside New Task, with how many Pomodoros each has and when you last touched it. Selecting one reuses the exact description, so follow-up sessions group together in the log instead of scattering across near-identical retyped strings.
+
+- Editable task history  
+  Fix a typo, or rename a task you described badly at 9am, from inside the log viewer. All the log lines belonging to that Pomodoro are updated together; timestamps and session states are never touched.
 
 - Configurable durations  
   Work and break lengths can be adjusted in-app and persist across runs.
@@ -54,7 +60,7 @@ Everything runs locally. Nothing phones home.
   Sessions are appended to a human-readable text file with timestamps and session state.
 
 - Built-in log viewer  
-  Scroll and page through previous Pomodoros directly inside the terminal UI.
+  Scroll, page, and select through previous Pomodoros directly inside the terminal UI.
 
 - Zero external dependencies  
   Uses only the Python standard library.
@@ -115,14 +121,18 @@ flowchart TD
     A([Launch: python3 pomocli.py]) --> B["load_config()<br/>resolve base dir + log file<br/>POMOCLI_DIR or ~/.pomocli"]
     B --> M{{Main Menu}}
 
-    M -->|Start Pomodoro| S1["Prompt: what task?"]
+    M -->|Start Pomodoro| S1{{"Pick task:<br/>New Task or a recent one"}}
     M -->|View previous| V1["read_log_lines()"]
     M -->|Settings| G1[["adjust_settings()"]]
     M -->|Quit / q| Z([Exit])
 
     %% Start Pomodoro flow
-    S1 --> S2["log START"]
-    S2 --> S3["run_timer: WORK<br/>progress bar + task on screen"]
+    S1 -->|New Task| S1b["Prompt: what task?"] --> S2
+    S1 -->|Recent task| S2
+    S1 -->|q back| M
+    S2["log START"]
+    S2 --> S3
+    S3["run_timer: WORK<br/>progress bar + task on screen"]
     S3 -->|press q| S4["log ABORT"] --> M
     S3 -->|press Enter| S5["log COMPLETE EARLY"] --> M
     S3 -->|timer reaches 0| S6["log END<br/>beep + flash x5"]
@@ -131,7 +141,9 @@ flowchart TD
     S7 -->|Skip / q| M
 
     %% View previous
-    V1 --> V2["Scrollable log viewer"] --> M
+    V1 --> V2["Selectable log viewer"]
+    V2 -->|press e| V3["Edit task description<br/>rewrite every line of that session"] --> V2
+    V2 -->|q back| M
 
     %% Settings
     G1 --> G2{Choose setting}
@@ -162,10 +174,15 @@ Timer screen:
 - Enter to complete the Pomodoro early (logged as COMPLETE EARLY)
 
 Log viewer:
-- Up and Down arrows to scroll
+- Up and Down arrows to move the selection
 - Page Up and Page Down to move by page
 - Home and End to jump to start or end
+- e to edit the selected entry's task description
 - q to exit the viewer
+
+Edit prompt:
+- Opens prefilled with the current description
+- Backspace to erase, Enter to save, ESC to cancel
 
 ---
 
@@ -277,6 +294,8 @@ Each entry includes a timestamp, session state, and task description. Example:
 ```
 
 Session states are `START`, `END`, `ABORT`, and `COMPLETE EARLY`. The log format is intentionally simple so it can be grepped, parsed, or archived without tooling.
+
+Task descriptions can be corrected in place from the log viewer (select an entry, press `e`). Editing rewrites every line belonging to that Pomodoro, so the two lines above would be renamed together. The rewrite goes through a temporary file and is moved into place, so an interrupted edit cannot truncate the log. Lines that do not match the format above - anything hand-edited in - are left alone and cannot be edited from the viewer.
 
 ---
 
